@@ -25,6 +25,46 @@ import re
 
 load_dotenv()
 
+# ========== HUGGING FACE SECRETS SUPPORT ==========
+def load_hf_secrets():
+    """Load secrets from Hugging Face Spaces"""
+    # Method 1: /run/secrets directory
+    secrets_dir = '/run/secrets'
+    if os.path.exists(secrets_dir):
+        for secret_name in os.listdir(secrets_dir):
+            secret_path = os.path.join(secrets_dir, secret_name)
+            try:
+                with open(secret_path, 'r') as f:
+                    os.environ[secret_name] = f.read().strip()
+                print(f"✅ Loaded secret: {secret_name}")
+            except Exception as e:
+                print(f"⚠️ Could not load {secret_name}: {e}")
+    
+    # Method 2: Individual secret files
+    for secret_name in ['GROQ_API_KEY', 'SECRET_KEY', 'ADMIN_USERNAME', 'ADMIN_PASSWORD']:
+        if not os.environ.get(secret_name):
+            paths = [
+                f'/etc/secrets/{secret_name}',
+                f'/secrets/{secret_name}',
+                f'/run/secrets/{secret_name}'
+            ]
+            for path in paths:
+                if os.path.exists(path):
+                    try:
+                        with open(path, 'r') as f:
+                            os.environ[secret_name] = f.read().strip()
+                        print(f"✅ Loaded secret from file: {secret_name}")
+                        break
+                    except:
+                        pass
+
+load_hf_secrets()
+
+# Debug: Print if API key is set
+groq_key = os.environ.get('GROQ_API_KEY', 'NOT SET')
+print(f"🔑 GROQ_API_KEY: {'SET (starts with ' + groq_key[:10] + '...)' if groq_key != 'NOT SET' else 'NOT SET'}")
+# ========== END HUGGING FACE SECRETS ==========
+
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -98,6 +138,8 @@ if groq_api_key:
         except:
             groq_client = None
         print("⚠️ Groq will try at runtime")
+else:
+    print("❌ No Groq API key found in environment")
 
 print("="*60 + "\n")
 
@@ -309,7 +351,7 @@ def chat():
             return jsonify({'response': 'Please type a message.'}), 400
         
         if not groq_client:
-            return jsonify({'response': 'AI service not available.'}), 500
+            return jsonify({'response': 'AI service not available. Please check the API key configuration.'}), 500
         
         # Get document context
         doc_context = ""
