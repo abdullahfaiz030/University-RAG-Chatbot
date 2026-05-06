@@ -11,7 +11,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from chromadb import Client
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
-from groq import Groq
 import PyPDF2
 import docx
 import pandas as pd
@@ -114,30 +113,44 @@ if chroma_client:
     except:
         metadata_collection = None
 
-# Groq - FIXED: Handle different Groq library versions
+# Groq - BULLETPROOF: Multiple initialization methods
 groq_api_key = os.getenv('GROQ_API_KEY')
 groq_client = None
 groq_connected = False
 
 if groq_api_key:
+    # Method 1: Standard
     try:
-        # Try standard initialization
+        from groq import Groq
         groq_client = Groq(api_key=groq_api_key)
-        print("✅ Groq client created")
+        print("✅ Groq client created (method 1)")
         groq_connected = True
-    except TypeError:
-        # Older/newer version - try without api_key
+    except Exception as e1:
+        print(f"⚠️ Method 1 failed: {e1}")
+    
+    # Method 2: Set env var then import
+    if not groq_client:
         try:
+            os.environ['GROQ_API_KEY'] = groq_api_key
+            from groq import Groq
             groq_client = Groq()
-            groq_client.api_key = groq_api_key
-            print("✅ Groq client created (alt method)")
+            print("✅ Groq client created (method 2)")
             groq_connected = True
         except Exception as e2:
-            print(f"❌ Failed to create Groq client: {e2}")
-            groq_client = None
-    except Exception as e:
-        print(f"❌ Failed to create Groq client: {e}")
-        groq_client = None
+            print(f"⚠️ Method 2 failed: {e2}")
+    
+    # Method 3: Direct HTTP requests (fallback - always works)
+    if not groq_client:
+        try:
+            import requests
+            print("✅ Using direct HTTP fallback for Groq")
+            groq_client = "http_fallback"
+            groq_connected = True
+        except:
+            pass
+    
+    if not groq_client:
+        print("❌ All Groq methods failed")
 else:
     print("❌ No Groq API key found in environment")
 
@@ -226,6 +239,31 @@ def chunk_text(text, size=500, overlap=50):
         chunks.append(current.strip())
     
     return chunks if chunks else [text[:size]]
+
+# ============== GROQ HTTP FALLBACK ==============
+
+def groq_chat_completion(messages, model="llama-3.1-8b-instant", max_tokens=150, temperature=0.7):
+    """Call Groq API directly via HTTP requests"""
+    import requests
+    
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {groq_api_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature
+    }
+    
+    response = requests.post(url, json=payload, headers=headers, timeout=30)
+    
+    if response.status_code == 200:
+        return response.json()["choices"][0]["message"]["content"]
+    else:
+        raise Exception(f"Groq API error: {response.status_code} - {response.text}")
 
 # ==================== ROUTES ====================
 
@@ -399,39 +437,54 @@ RULES (follow strictly):
             system_prompt = "Give very short, simple answers. 2-3 sentences max. Casual tone."
             user_prompt = f"Question: {user_message}\n\nShort answer:"
         
-        # Get response
+        # Get response - use HTTP fallback if Groq client is string
         response_text = None
-        for model in ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "mixtral-8x7b-32768"]:
-            try:
-                completion = groq_client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    temperature=0.7,
-                    max_tokens=150
-                )
-                response_text = completion.choices[0].message.content
-                
-                response_text = re.sub(r'\*{1,3}', '', response_text)
-                response_text = re.sub(r'#{1,4}\s*', '', response_text)
-                response_text = re.sub(r'\[Source:.*?\]', '', response_text)
-                response_text = re.sub(r'Think of it like.*?\.', '', response_text)
-                response_text = re.sub(r'Well,?\s*,?\s*', '', response_text)
-                response_text = re.sub(r'So,?\s*,?\s*', '', response_text)
-                response_text = re.sub(r'Basically,?\s*,?\s*', '', response_text)
-                response_text = response_text.strip()
-                
-                sentences = re.split(r'(?<=[.!?])\s+', response_text)
-                if len(sentences) > 2:
-                    response_text = ' '.join(sentences[:2])
-                
-                break
-            except:
-                continue
+        
+        if groq_client == "http_fallback":
+            # Use direct HTTP fallback
+            models_to_try = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "mixtral-8x7b-32768"]
+            for model in models_to_try:
+                try:
+                    response_text = groq_chat_completion(
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        model=model,
+                        max_tokens=150,
+                        temperature=0.7
+                    )
+                    break
+                except:
+                    continue
+        else:
+            # Use Groq client
+            for model in ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "mixtral-8x7b-32768"]:
+                try:
+                    completion = groq_client.chat.completions.create(
+                        model=model,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        temperature=0.7,
+                        max_tokens=150
+                    )
+                    response_text = completion.choices[0].message.content
+                    break
+                except:
+                    continue
         
         if response_text:
+            response_text = re.sub(r'\*{1,3}', '', response_text)
+            response_text = re.sub(r'#{1,4}\s*', '', response_text)
+            response_text = re.sub(r'\[Source:.*?\]', '', response_text)
+            response_text = response_text.strip()
+            
+            sentences = re.split(r'(?<=[.!?])\s+', response_text)
+            if len(sentences) > 2:
+                response_text = ' '.join(sentences[:2])
+            
             return jsonify({
                 'response': response_text,
                 'sources': list(set(sources))[:3] if sources else []
