@@ -114,30 +114,27 @@ if chroma_client:
     except:
         metadata_collection = None
 
-# Groq - FIXED: Always set groq_connected = True if client created
+# Groq - FIXED: Handle different Groq library versions
 groq_api_key = os.getenv('GROQ_API_KEY')
 groq_client = None
 groq_connected = False
 
 if groq_api_key:
     try:
+        # Try standard initialization
         groq_client = Groq(api_key=groq_api_key)
         print("✅ Groq client created")
-        
-        # Try a quick test but don't fail if it doesn't work
+        groq_connected = True
+    except TypeError:
+        # Older/newer version - try without api_key
         try:
-            test = groq_client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[{"role": "user", "content": "hi"}],
-                max_tokens=5,
-                timeout=10
-            )
+            groq_client = Groq()
+            groq_client.api_key = groq_api_key
+            print("✅ Groq client created (alt method)")
             groq_connected = True
-            print("✅ Groq API test passed")
-        except Exception as e:
-            # Client is created - mark as connected so chat works
-            groq_connected = True
-            print(f"⚠️ Groq test skipped (will work at runtime): {str(e)[:80]}")
+        except Exception as e2:
+            print(f"❌ Failed to create Groq client: {e2}")
+            groq_client = None
     except Exception as e:
         print(f"❌ Failed to create Groq client: {e}")
         groq_client = None
