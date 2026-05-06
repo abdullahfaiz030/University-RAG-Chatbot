@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Chat Assistant</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="chat-container">
+        <!-- Chat Header -->
+        <div class="chat-header">
+            <div class="bot-info">
+                <div class="bot-avatar">
+                    <i class="fas fa-robot"></i>
+                </div>
+                <div class="bot-details">
+                    <h2>AI Assistant</h2>
+                    <div class="status-indicator">
+                        <span class="status-dot"></span>
+                        <span class="status-text">Online</span>
+                        <span class="doc-status" id="docStatus"></span>
+                    </div>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button class="new-chat-btn" onclick="startNewChat()" title="New Chat">
+                    <i class="fas fa-plus"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Chat Messages Area -->
+        <div class="chat-messages" id="chatMessages">
+            <!-- Welcome Message -->
+            <div class="welcome-message">
+                <div class="welcome-icon">
+                    <i class="fas fa-robot"></i>
+                </div>
+                <h3>Welcome to AI Assistant</h3>
+                <p>I'm here to help you with questions about our documentation and knowledge base. Feel free to ask me anything!</p>
+                <div class="suggestion-chips">
+                    <button onclick="sendSuggestion('What topics are covered in the documents?')" class="chip">
+                        <i class="fas fa-lightbulb"></i> Topics covered
+                    </button>
+                    <button onclick="sendSuggestion('Can you summarize the main points?')" class="chip">
+                        <i class="fas fa-list"></i> Key points
+                    </button>
+                    <button onclick="sendSuggestion('Help me understand the documentation')" class="chip">
+                        <i class="fas fa-question-circle"></i> Help me understand
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat Input Area -->
+        <div class="chat-input-area">
+            <div class="input-wrapper">
+                <textarea 
+                    id="userInput" 
+                    placeholder="Type your message here... (Shift+Enter for new line)"
+                    rows="1"
+                    onkeydown="handleKeyDown(event)"
+                ></textarea>
+                <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Send message">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+            </div>
+            <div class="input-hint">
+                <i class="fas fa-shield-alt"></i> Your conversations are private and secure
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin Link (Bottom Right - Small) -->
+    <a href="/admin" class="admin-link" title="Admin Panel">
+        <i class="fas fa-cog"></i>
+    </a>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
