@@ -92,7 +92,6 @@ try:
     if qdrant_url and qdrant_api_key:
         qdrant_client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
         
-        # Create collection if not exists
         collections = qdrant_client.get_collections().collections
         collection_names = [c.name for c in collections]
         
@@ -321,7 +320,6 @@ def upload_file():
             
             file_type = filename.split('.')[-1].lower()
             
-            # Extract text
             if file_type == 'pdf':
                 text = extract_text_from_pdf(file_path)
             elif file_type == 'docx':
@@ -360,7 +358,6 @@ def upload_file():
                         }
                     ))
                 
-                # Store in Qdrant
                 if qdrant_client:
                     qdrant_client.upsert(
                         collection_name="university_notes",
@@ -368,7 +365,6 @@ def upload_file():
                     )
                     print(f"✅ Qdrant: {filename} ({len(chunks)} chunks)")
                 
-                # Backup to Hugging Face Dataset
                 upload_to_hf_dataset(file_path, filename)
                 
                 uploaded.append({
@@ -400,11 +396,20 @@ def chat():
         if not groq_client:
             return jsonify({'response': 'AI service not available.'}), 500
         
-        # Search Qdrant
+        # --- DETECT GREETINGS ---
+        greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening', 
+                     'how are you', 'whats up', "what's up", 'sup', 'yo', 'hola', 'helo',
+                     'hii', 'heyy', 'helloo', 'good day', 'greetings', 'howdy']
+        
+        user_lower = user_message.lower().strip()
+        is_greeting = any(g in user_lower for g in greetings)
+        is_very_short = len(user_message.split()) <= 2
+        
+        # Search Qdrant (skip for greetings)
         doc_context = ""
         sources = []
         
-        if qdrant_client and embedding_model:
+        if qdrant_client and embedding_model and not is_greeting:
             try:
                 query_embedding = embedding_model.encode(user_message).tolist()
                 
@@ -428,10 +433,24 @@ def chat():
             except Exception as e:
                 print(f"Qdrant search error: {e}")
         
-        # Build prompt
-        if doc_context:
-            system_prompt = """You are chatting with a student who needs quick, clear answers.
-RULES (follow strictly):
+        # --- BUILD PROMPT BASED ON MESSAGE TYPE ---
+        if is_greeting or (is_very_short and not doc_context):
+            system_prompt = """You are a friendly AI study assistant. The user is greeting you.
+            
+RULES:
+1. Respond with a SHORT, warm, friendly greeting (1-2 sentences max).
+2. Introduce yourself briefly as their study assistant.
+3. Mention they can ask about their course materials.
+4. DO NOT mention any documents, files, or technical terms.
+5. DO NOT answer any questions - just greet them back warmly.
+6. Keep it under 30 words."""
+            
+            user_prompt = f"User says: {user_message}\n\nGive a short, friendly greeting back. Do NOT answer any questions or mention any study topics:"
+            
+        elif doc_context:
+            system_prompt = """You are chatting with a student who needs quick, clear answers from their study notes.
+
+RULES:
 1. Give ONE short answer in 2-3 sentences max.
 2. Write like you're texting a friend - casual, simple words.
 3. NO paragraphs, NO bullet points, NO lists.
@@ -440,7 +459,7 @@ RULES (follow strictly):
 
             user_prompt = f"""Notes for reference:\n{doc_context[:500]}\n\nStudent asks: {user_message}\n\nGive a single, short, direct answer (2-3 sentences):"""
         else:
-            system_prompt = "Give very short, simple answers. 2-3 sentences max. Casual tone."
+            system_prompt = "You are a helpful study assistant. Give short, simple answers. 2-3 sentences max. Casual tone."
             user_prompt = f"Question: {user_message}\n\nShort answer:"
         
         # Get response
@@ -455,7 +474,7 @@ RULES (follow strictly):
                             {"role": "user", "content": user_prompt}
                         ],
                         model=model,
-                        max_tokens=150,
+                        max_tokens=100 if is_greeting else 150,
                         temperature=0.7
                     )
                     break
@@ -471,7 +490,7 @@ RULES (follow strictly):
                             {"role": "user", "content": user_prompt}
                         ],
                         temperature=0.7,
-                        max_tokens=150
+                        max_tokens=100 if is_greeting else 150
                     )
                     response_text = completion.choices[0].message.content
                     break
@@ -483,20 +502,28 @@ RULES (follow strictly):
             response_text = re.sub(r'#{1,4}\s*', '', response_text)
             response_text = response_text.strip()
             
+            # If greeting gave technical response, replace it
+            if is_greeting:
+                technical_terms = ['RAD', 'model', 'software', 'development', 'system', 'process', 
+                                  'document', 'file', 'pdf', 'lecture', 'notes', 'chunk']
+                has_technical = any(term.lower() in response_text.lower() for term in technical_terms)
+                if has_technical or len(response_text) > 100:
+                    response_text = "Hey there! 👋 I'm your AI study assistant. Feel free to ask me anything about your course materials!"
+            
             sentences = re.split(r'(?<=[.!?])\s+', response_text)
             if len(sentences) > 2:
                 response_text = ' '.join(sentences[:2])
             
             return jsonify({
                 'response': response_text,
-                'sources': list(set(sources))[:3] if sources else []
+                'sources': list(set(sources))[:3] if sources and not is_greeting else []
             })
         else:
-            return jsonify({'response': "Sorry, try again."}), 500
+            return jsonify({'response': "Hey! I'm your study assistant. Ask me anything about your course materials! 👋"}), 500
             
     except Exception as e:
         print(f"Chat error: {e}")
-        return jsonify({'response': "Something went wrong."}), 500
+        return jsonify({'response': "Hey! How can I help you study today?"}), 500
 
 @app.route('/check-status', methods=['GET'])
 def check_status():
@@ -523,7 +550,6 @@ def get_documents():
     docs = []
     if qdrant_client:
         try:
-            # Get all unique filenames from Qdrant
             scroll_results = qdrant_client.scroll(
                 collection_name="university_notes",
                 limit=100,
