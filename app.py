@@ -2,15 +2,15 @@ import os
 import warnings
 warnings.filterwarnings('ignore')
 os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
-os.environ['CHROMADB_TELEMETRY'] = 'False'
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
-from chromadb import Client
-from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams, PointStruct
+from huggingface_hub import HfApi
 import PyPDF2
 import docx
 import pandas as pd
@@ -21,12 +21,12 @@ from datetime import timedelta
 import traceback
 import time
 import re
+import uuid
 
 load_dotenv()
 
 # ========== HUGGING FACE SECRETS SUPPORT ==========
 def load_hf_secrets():
-    """Load secrets from Hugging Face Spaces"""
     secrets_dir = '/run/secrets'
     if os.path.exists(secrets_dir):
         for secret_name in os.listdir(secrets_dir):
@@ -38,19 +38,16 @@ def load_hf_secrets():
             except Exception as e:
                 print(f"⚠️ Could not load {secret_name}: {e}")
     
-    for secret_name in ['GROQ_API_KEY', 'SECRET_KEY', 'ADMIN_USERNAME', 'ADMIN_PASSWORD']:
+    for secret_name in ['GROQ_API_KEY', 'SECRET_KEY', 'ADMIN_USERNAME', 'ADMIN_PASSWORD', 
+                         'QDRANT_URL', 'QDRANT_API_KEY', 'HF_TOKEN', 'HF_DATASET']:
         if not os.environ.get(secret_name):
-            paths = [
-                f'/etc/secrets/{secret_name}',
-                f'/secrets/{secret_name}',
-                f'/run/secrets/{secret_name}'
-            ]
+            paths = [f'/etc/secrets/{secret_name}', f'/secrets/{secret_name}', f'/run/secrets/{secret_name}']
             for path in paths:
                 if os.path.exists(path):
                     try:
                         with open(path, 'r') as f:
                             os.environ[secret_name] = f.read().strip()
-                        print(f"✅ Loaded secret from file: {secret_name}")
+                        print(f"✅ Loaded secret: {secret_name}")
                         break
                     except:
                         pass
@@ -58,8 +55,10 @@ def load_hf_secrets():
 load_hf_secrets()
 
 groq_key = os.environ.get('GROQ_API_KEY', 'NOT SET')
-print(f"🔑 GROQ_API_KEY: {'SET (starts with ' + groq_key[:10] + '...)' if groq_key != 'NOT SET' else 'NOT SET'}")
-# ========== END HUGGING FACE SECRETS ==========
+print(f"🔑 GROQ_API_KEY: {'SET' if groq_key != 'NOT SET' else 'NOT SET'}")
+print(f"🔑 QDRANT_URL: {'SET' if os.environ.get('QDRANT_URL') else 'NOT SET'}")
+print(f"🔑 HF_TOKEN: {'SET' if os.environ.get('HF_TOKEN') else 'NOT SET'}")
+# ========== END SECRETS ==========
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024
@@ -84,75 +83,66 @@ except:
     embedding_model = None
     print("❌ Embedding failed")
 
-# ChromaDB
+# Qdrant Cloud
+qdrant_client = None
 try:
-    chroma_client = Client(Settings(
-        persist_directory="chroma_db",
-        anonymized_telemetry=False,
-        is_persistent=True
-    ))
-    print("✅ ChromaDB initialized")
-except:
-    chroma_client = None
-    print("❌ ChromaDB failed")
-
-document_collection = None
-metadata_collection = None
-
-if chroma_client:
-    try:
-        document_collection = chroma_client.get_or_create_collection("documents")
-        print(f"✅ Document collection ready ({document_collection.count()} chunks)")
-    except Exception as e:
-        print(f"❌ Collection error: {e}")
-        document_collection = None
+    qdrant_url = os.getenv('QDRANT_URL')
+    qdrant_api_key = os.getenv('QDRANT_API_KEY')
     
-    try:
-        metadata_collection = chroma_client.get_or_create_collection("document_metadata")
-        print("✅ Metadata collection ready")
-    except:
-        metadata_collection = None
+    if qdrant_url and qdrant_api_key:
+        qdrant_client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
+        
+        # Create collection if not exists
+        collections = qdrant_client.get_collections().collections
+        collection_names = [c.name for c in collections]
+        
+        if "university_notes" not in collection_names:
+            qdrant_client.create_collection(
+                collection_name="university_notes",
+                vectors_config=VectorParams(size=384, distance=Distance.COSINE)
+            )
+            print("✅ Qdrant collection created")
+        else:
+            info = qdrant_client.get_collection("university_notes")
+            print(f"✅ Qdrant connected ({info.points_count} documents)")
+    else:
+        print("⚠️ Qdrant credentials not found")
+except Exception as e:
+    print(f"❌ Qdrant connection failed: {e}")
+    qdrant_client = None
 
-# Groq - BULLETPROOF: Multiple initialization methods
+# Hugging Face Dataset (Backup)
+hf_api = None
+hf_dataset = os.getenv('HF_DATASET', '')
+try:
+    hf_token = os.getenv('HF_TOKEN')
+    if hf_token and hf_dataset:
+        hf_api = HfApi(token=hf_token)
+        print(f"✅ HF Dataset ready: {hf_dataset}")
+    else:
+        print("⚠️ HF Dataset credentials not found")
+except Exception as e:
+    print(f"⚠️ HF Dataset setup failed: {e}")
+
+# Groq
 groq_api_key = os.getenv('GROQ_API_KEY')
 groq_client = None
 groq_connected = False
 
 if groq_api_key:
-    # Method 1: Standard
     try:
         from groq import Groq
         groq_client = Groq(api_key=groq_api_key)
-        print("✅ Groq client created (method 1)")
+        print("✅ Groq client created")
         groq_connected = True
-    except Exception as e1:
-        print(f"⚠️ Method 1 failed: {e1}")
-    
-    # Method 2: Set env var then import
-    if not groq_client:
-        try:
-            os.environ['GROQ_API_KEY'] = groq_api_key
-            from groq import Groq
-            groq_client = Groq()
-            print("✅ Groq client created (method 2)")
-            groq_connected = True
-        except Exception as e2:
-            print(f"⚠️ Method 2 failed: {e2}")
-    
-    # Method 3: Direct HTTP requests (fallback - always works)
-    if not groq_client:
+    except:
         try:
             import requests
-            print("✅ Using direct HTTP fallback for Groq")
+            print("✅ Using HTTP fallback for Groq")
             groq_client = "http_fallback"
             groq_connected = True
         except:
-            pass
-    
-    if not groq_client:
-        print("❌ All Groq methods failed")
-else:
-    print("❌ No Groq API key found in environment")
+            print("❌ Groq failed")
 
 print("="*60 + "\n")
 
@@ -240,12 +230,8 @@ def chunk_text(text, size=500, overlap=50):
     
     return chunks if chunks else [text[:size]]
 
-# ============== GROQ HTTP FALLBACK ==============
-
 def groq_chat_completion(messages, model="llama-3.1-8b-instant", max_tokens=150, temperature=0.7):
-    """Call Groq API directly via HTTP requests"""
     import requests
-    
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {groq_api_key}",
@@ -257,13 +243,31 @@ def groq_chat_completion(messages, model="llama-3.1-8b-instant", max_tokens=150,
         "max_tokens": max_tokens,
         "temperature": temperature
     }
-    
     response = requests.post(url, json=payload, headers=headers, timeout=30)
-    
     if response.status_code == 200:
         return response.json()["choices"][0]["message"]["content"]
     else:
-        raise Exception(f"Groq API error: {response.status_code} - {response.text}")
+        raise Exception(f"Groq API error: {response.status_code}")
+
+def upload_to_hf_dataset(file_path, filename):
+    """Backup original file to Hugging Face Dataset"""
+    if not hf_api or not hf_dataset:
+        print("⚠️ HF Dataset not configured - skipping backup")
+        return False
+    
+    try:
+        path_in_repo = f"documents/{filename}"
+        hf_api.upload_file(
+            path_or_fileobj=file_path,
+            path_in_repo=path_in_repo,
+            repo_id=hf_dataset,
+            repo_type="dataset"
+        )
+        print(f"✅ Backed up to HF: {filename}")
+        return True
+    except Exception as e:
+        print(f"⚠️ HF backup failed: {e}")
+        return False
 
 # ==================== ROUTES ====================
 
@@ -303,6 +307,7 @@ def upload_file():
         return jsonify({'error': 'No files'}), 400
     
     files = request.files.getlist('files')
+    category = request.form.get('category', '')
     uploaded = []
     failed = []
     
@@ -316,6 +321,7 @@ def upload_file():
             
             file_type = filename.split('.')[-1].lower()
             
+            # Extract text
             if file_type == 'pdf':
                 text = extract_text_from_pdf(file_path)
             elif file_type == 'docx':
@@ -335,38 +341,41 @@ def upload_file():
             
             if text and len(text.strip()) > 50:
                 chunks = chunk_text(text)
-                doc_id = f"doc_{int(time.time())}_{filename.replace('.', '_')}"
+                points = []
                 
-                if metadata_collection:
-                    metadata_collection.add(
-                        documents=[json.dumps({
-                            'filename': filename,
-                            'file_type': file_type,
-                            'upload_date': str(pd.Timestamp.now()),
-                            'chunks': len(chunks),
-                            'doc_id': doc_id
-                        })],
-                        ids=[doc_id]
+                for i, chunk in enumerate(chunks):
+                    embedding = embedding_model.encode(chunk).tolist()
+                    point_id = str(uuid.uuid4())
+                    
+                    points.append(PointStruct(
+                        id=point_id,
+                        vector=embedding,
+                        payload={
+                            "filename": filename,
+                            "text": chunk,
+                            "chunk_index": i,
+                            "category": category,
+                            "file_type": file_type,
+                            "upload_date": str(pd.Timestamp.now())
+                        }
+                    ))
+                
+                # Store in Qdrant
+                if qdrant_client:
+                    qdrant_client.upsert(
+                        collection_name="university_notes",
+                        points=points
                     )
+                    print(f"✅ Qdrant: {filename} ({len(chunks)} chunks)")
                 
-                if document_collection and embedding_model:
-                    for i in range(0, len(chunks), 50):
-                        batch = chunks[i:i+50]
-                        embeddings = [embedding_model.encode(c).tolist() for c in batch]
-                        ids = [f"{doc_id}_{j}" for j in range(i, i+len(batch))]
-                        document_collection.add(
-                            embeddings=embeddings,
-                            documents=batch,
-                            metadatas=[{'doc_id': doc_id, 'filename': filename} for _ in batch],
-                            ids=ids
-                        )
+                # Backup to Hugging Face Dataset
+                upload_to_hf_dataset(file_path, filename)
                 
                 uploaded.append({
                     'name': filename,
                     'type': file_type.upper(),
                     'chunks': len(chunks)
                 })
-                print(f"✅ {filename} ({len(chunks)} chunks)")
             else:
                 failed.append({'name': filename, 'reason': 'No text extracted'})
             
@@ -389,61 +398,56 @@ def chat():
             return jsonify({'response': 'Please type a message.'}), 400
         
         if not groq_client:
-            return jsonify({'response': 'AI service not available. Please check the API key configuration.'}), 500
+            return jsonify({'response': 'AI service not available.'}), 500
         
-        # Get document context
+        # Search Qdrant
         doc_context = ""
         sources = []
         
-        if document_collection and document_collection.count() > 0 and embedding_model:
+        if qdrant_client and embedding_model:
             try:
                 query_embedding = embedding_model.encode(user_message).tolist()
-                results = document_collection.query(
-                    query_embeddings=[query_embedding],
-                    n_results=3
+                
+                search_results = qdrant_client.search(
+                    collection_name="university_notes",
+                    query_vector=query_embedding,
+                    limit=3
                 )
                 
-                if results['documents'] and results['documents'][0]:
+                if search_results:
                     texts = []
-                    for i, doc in enumerate(results['documents'][0]):
-                        src = results['metadatas'][0][i].get('filename', '') if results['metadatas'] else ''
-                        if src and src not in sources:
-                            sources.append(src)
-                        cleaned = clean_text(doc)
-                        if len(cleaned) > 30:
-                            texts.append(cleaned)
+                    for hit in search_results:
+                        payload = hit.payload
+                        filename = payload.get('filename', 'Unknown')
+                        if filename not in sources:
+                            sources.append(filename)
+                        texts.append(payload.get('text', ''))
                     
                     if texts:
                         doc_context = "\n\n".join(texts[:3])
-            except:
-                pass
+            except Exception as e:
+                print(f"Qdrant search error: {e}")
         
-        # --- ULTRA-CLEAN, SHORT CHAT RESPONSE ---
+        # Build prompt
         if doc_context:
             system_prompt = """You are chatting with a student who needs quick, clear answers.
-
 RULES (follow strictly):
 1. Give ONE short answer in 2-3 sentences max.
 2. Write like you're texting a friend - casual, simple words.
 3. NO paragraphs, NO bullet points, NO lists.
-4. NO phrases like "Think of it like..." or "Well, basically..."
-5. NO "According to..." or "The notes say..."
-6. Just state the answer directly and simply.
-7. If they ask "what is X", just define X in the simplest way possible.
-8. Keep it under 50 words if possible."""
+4. Just state the answer directly and simply.
+5. Keep it under 50 words if possible."""
 
             user_prompt = f"""Notes for reference:\n{doc_context[:500]}\n\nStudent asks: {user_message}\n\nGive a single, short, direct answer (2-3 sentences):"""
         else:
             system_prompt = "Give very short, simple answers. 2-3 sentences max. Casual tone."
             user_prompt = f"Question: {user_message}\n\nShort answer:"
         
-        # Get response - use HTTP fallback if Groq client is string
+        # Get response
         response_text = None
         
         if groq_client == "http_fallback":
-            # Use direct HTTP fallback
-            models_to_try = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "mixtral-8x7b-32768"]
-            for model in models_to_try:
+            for model in ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"]:
                 try:
                     response_text = groq_chat_completion(
                         messages=[
@@ -458,8 +462,7 @@ RULES (follow strictly):
                 except:
                     continue
         else:
-            # Use Groq client
-            for model in ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "mixtral-8x7b-32768"]:
+            for model in ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"]:
                 try:
                     completion = groq_client.chat.completions.create(
                         model=model,
@@ -478,7 +481,6 @@ RULES (follow strictly):
         if response_text:
             response_text = re.sub(r'\*{1,3}', '', response_text)
             response_text = re.sub(r'#{1,4}\s*', '', response_text)
-            response_text = re.sub(r'\[Source:.*?\]', '', response_text)
             response_text = response_text.strip()
             
             sentences = re.split(r'(?<=[.!?])\s+', response_text)
@@ -499,9 +501,10 @@ RULES (follow strictly):
 @app.route('/check-status', methods=['GET'])
 def check_status():
     doc_count = 0
-    if document_collection:
+    if qdrant_client:
         try:
-            doc_count = document_collection.count()
+            info = qdrant_client.get_collection("university_notes")
+            doc_count = info.points_count
         except:
             doc_count = 0
     
@@ -509,19 +512,38 @@ def check_status():
         'status': 'online',
         'documents_available': doc_count > 0,
         'document_count': doc_count,
-        'api_connected': groq_connected
+        'api_connected': groq_connected,
+        'qdrant_connected': qdrant_client is not None,
+        'hf_backup_ready': hf_api is not None
     })
 
 @app.route('/admin/documents', methods=['GET'])
 @admin_required
 def get_documents():
     docs = []
-    if metadata_collection:
+    if qdrant_client:
         try:
-            results = metadata_collection.get()
-            if results['documents']:
-                docs = [json.loads(d) for d in results['documents']]
-                docs.sort(key=lambda x: x.get('upload_date', ''), reverse=True)
+            # Get all unique filenames from Qdrant
+            scroll_results = qdrant_client.scroll(
+                collection_name="university_notes",
+                limit=100,
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            seen = set()
+            for point in scroll_results[0]:
+                filename = point.payload.get('filename', '')
+                if filename and filename not in seen:
+                    seen.add(filename)
+                    docs.append({
+                        'filename': filename,
+                        'file_type': point.payload.get('file_type', ''),
+                        'category': point.payload.get('category', ''),
+                        'upload_date': point.payload.get('upload_date', ''),
+                        'doc_id': point.id,
+                        'chunks': 1
+                    })
         except:
             pass
     return jsonify({'success': True, 'documents': docs})
@@ -530,10 +552,11 @@ def get_documents():
 @admin_required
 def delete_document(doc_id):
     try:
-        if document_collection:
-            document_collection.delete(where={"doc_id": doc_id})
-        if metadata_collection:
-            metadata_collection.delete(ids=[doc_id])
+        if qdrant_client:
+            qdrant_client.delete(
+                collection_name="university_notes",
+                points_selector=[doc_id]
+            )
         return jsonify({'success': True})
     except:
         return jsonify({'success': False}), 500
@@ -541,20 +564,36 @@ def delete_document(doc_id):
 @app.route('/admin/stats')
 @admin_required
 def get_admin_stats():
+    doc_count = 0
+    if qdrant_client:
+        try:
+            info = qdrant_client.get_collection("university_notes")
+            doc_count = info.points_count
+        except:
+            doc_count = 0
+    
     return jsonify({
         'success': True,
-        'total_documents': metadata_collection.count() if metadata_collection else 0,
-        'total_chunks': document_collection.count() if document_collection else 0
+        'total_documents': doc_count,
+        'total_chunks': doc_count
     })
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 7860))
     
+    doc_count = 0
+    if qdrant_client:
+        try:
+            info = qdrant_client.get_collection("university_notes")
+            doc_count = info.points_count
+        except:
+            pass
+    
     print("\n" + "="*60)
     print("🚀 SERVER STARTED")
-    doc_count = document_collection.count() if document_collection else 0
-    print(f"📚 Documents: {doc_count} chunks")
-    print(f"🌐 Running on port {port}")
+    print(f"📚 Documents in Qdrant: {doc_count}")
+    print(f"💾 HF Backup: {'Ready' if hf_api else 'Not configured'}")
+    print(f"🌐 http://0.0.0.0:{port}/")
     print("="*60 + "\n")
     
     app.run(host='0.0.0.0', port=port, debug=False)
