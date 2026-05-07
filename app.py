@@ -58,7 +58,6 @@ groq_key = os.environ.get('GROQ_API_KEY', 'NOT SET')
 print(f"🔑 GROQ_API_KEY: {'SET' if groq_key != 'NOT SET' else 'NOT SET'}")
 print(f"🔑 QDRANT_URL: {'SET' if os.environ.get('QDRANT_URL') else 'NOT SET'}")
 print(f"🔑 HF_TOKEN: {'SET' if os.environ.get('HF_TOKEN') else 'NOT SET'}")
-# ========== END SECRETS ==========
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024
@@ -75,7 +74,6 @@ print("\n" + "="*60)
 print("🔄 INITIALIZING...")
 print("="*60)
 
-# Embedding model
 try:
     embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
     print("✅ Embedding model loaded")
@@ -83,7 +81,6 @@ except:
     embedding_model = None
     print("❌ Embedding failed")
 
-# Qdrant Cloud
 qdrant_client = None
 try:
     qdrant_url = os.getenv('QDRANT_URL')
@@ -110,7 +107,6 @@ except Exception as e:
     print(f"❌ Qdrant connection failed: {e}")
     qdrant_client = None
 
-# Hugging Face Dataset (Backup)
 hf_api = None
 hf_dataset = os.getenv('HF_DATASET', '')
 try:
@@ -123,7 +119,6 @@ try:
 except Exception as e:
     print(f"⚠️ HF Dataset setup failed: {e}")
 
-# Groq
 groq_api_key = os.getenv('GROQ_API_KEY')
 groq_client = None
 groq_connected = False
@@ -153,8 +148,6 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# ============== PDF EXTRACTION ==============
-
 def extract_text_from_pdf(file_path):
     text = ""
     try:
@@ -181,7 +174,6 @@ def extract_text_from_pdf(file_path):
                 text = ocr_text
         except:
             pass
-    
     return text
 
 def extract_text_from_docx(file_path):
@@ -212,7 +204,6 @@ def chunk_text(text, size=500, overlap=50):
     paragraphs = re.split(r'\n\s*\n', text)
     chunks = []
     current = ""
-    
     for para in paragraphs:
         para = para.strip()
         if not para or len(para) < 20:
@@ -223,10 +214,8 @@ def chunk_text(text, size=500, overlap=50):
             if current.strip():
                 chunks.append(current.strip())
             current = para + "\n\n"
-    
     if current.strip():
         chunks.append(current.strip())
-    
     return chunks if chunks else [text[:size]]
 
 def groq_chat_completion(messages, model="llama-3.1-8b-instant", max_tokens=150, temperature=0.7):
@@ -249,11 +238,9 @@ def groq_chat_completion(messages, model="llama-3.1-8b-instant", max_tokens=150,
         raise Exception(f"Groq API error: {response.status_code}")
 
 def upload_to_hf_dataset(file_path, filename):
-    """Backup original file to Hugging Face Dataset"""
     if not hf_api or not hf_dataset:
         print("⚠️ HF Dataset not configured - skipping backup")
         return False
-    
     try:
         path_in_repo = f"documents/{filename}"
         hf_api.upload_file(
@@ -317,7 +304,6 @@ def upload_file():
             filename = secure_filename(file.filename)
             file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             file.save(file_path)
-            
             file_type = filename.split('.')[-1].lower()
             
             if file_type == 'pdf':
@@ -340,11 +326,9 @@ def upload_file():
             if text and len(text.strip()) > 50:
                 chunks = chunk_text(text)
                 points = []
-                
                 for i, chunk in enumerate(chunks):
                     embedding = embedding_model.encode(chunk).tolist()
                     point_id = str(uuid.uuid4())
-                    
                     points.append(PointStruct(
                         id=point_id,
                         vector=embedding,
@@ -359,25 +343,16 @@ def upload_file():
                     ))
                 
                 if qdrant_client:
-                    qdrant_client.upsert(
-                        collection_name="university_notes",
-                        points=points
-                    )
+                    qdrant_client.upsert(collection_name="university_notes", points=points)
                     print(f"✅ Qdrant: {filename} ({len(chunks)} chunks)")
                 
                 upload_to_hf_dataset(file_path, filename)
-                
-                uploaded.append({
-                    'name': filename,
-                    'type': file_type.upper(),
-                    'chunks': len(chunks)
-                })
+                uploaded.append({'name': filename, 'type': file_type.upper(), 'chunks': len(chunks)})
             else:
                 failed.append({'name': filename, 'reason': 'No text extracted'})
             
             if os.path.exists(file_path):
                 os.remove(file_path)
-                
         except Exception as e:
             print(f"❌ {file.filename}: {e}")
             failed.append({'name': file.filename, 'reason': str(e)})
@@ -392,53 +367,39 @@ def chat():
         
         if not user_message:
             return jsonify({'response': 'Please type a message.'}), 400
-        
         if not groq_client:
             return jsonify({'response': 'AI service not available.'}), 500
         
-        # ========== SMART MESSAGE CLASSIFICATION ==========
         user_lower = user_message.lower().strip()
         
-        # 1. Greetings
+        # Message classification
         greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening', 
-                     'how are you', 'whats up', "what's up", 'sup', 'yo', 'hola', 'helo',
-                     'hii', 'heyy', 'helloo', 'good day', 'greetings', 'howdy', 'morning']
+                     'how are you', 'whats up', "what's up", 'sup', 'yo', 'hola',
+                     'hii', 'heyy', 'helloo', 'morning', 'evening', 'good day']
+        personal_q = ['your name', 'who are you', 'what are you', 'know my name',
+                     'do you know me', 'who am i', 'what is my name',
+                     'about yourself', 'introduce yourself', 'who created you',
+                     'are you ai', 'are you human', 'your country', 'where are you from',
+                     'where do you live', 'are you real']
+        small_talk = ['how are you', 'how do you do', 'how is it going', 'how are things']
+        thanks = ['thank', 'thanks', 'thx', 'appreciate']
         
-        # 2. Personal/Identity questions
-        personal_questions = ['your name', 'who are you', 'what are you', 'know my name',
-                             'do you know me', 'who am i', 'what is my name', 'remember me',
-                             'about yourself', 'introduce yourself', 'tell me about yourself',
-                             'who created you', 'who made you', 'are you ai', 'are you human']
-        
-        # 3. Small talk
-        small_talk = ['how are you', 'how do you do', 'how is it going', 'how are things',
-                      'how have you been', 'whats going on', "what's going on", 'whats new']
-        
-        # 4. Thank you
-        thanks = ['thank', 'thanks', 'thx', 'appreciate', 'grateful']
-        
-        is_greeting = any(g in user_lower for g in greetings) and len(user_message.split()) <= 3
-        is_personal = any(p in user_lower for p in personal_questions)
+        is_greeting = any(g in user_lower for g in greetings) and len(user_message.split()) <= 4
+        is_personal = any(p in user_lower for p in personal_q)
         is_small_talk = any(s in user_lower for s in small_talk)
-        is_thanks = any(t in user_lower for t in thanks) and len(user_message.split()) <= 3
-        is_very_short = len(user_message.split()) <= 2
+        is_thanks = any(t in user_lower for t in thanks) and len(user_message.split()) <= 4
+        is_casual = is_greeting or is_personal or is_small_talk or is_thanks
         
-        is_casual = is_greeting or is_personal or is_small_talk or is_thanks or (is_very_short and not any(c.isdigit() for c in user_message))
-        
-        # ========== SEARCH DOCUMENTS (skip for casual chat) ==========
+        # Search documents (skip for casual)
         doc_context = ""
         sources = []
-        
         if qdrant_client and embedding_model and not is_casual:
             try:
                 query_embedding = embedding_model.encode(user_message).tolist()
-                
                 search_results = qdrant_client.search(
                     collection_name="university_notes",
-                    query_vector=query_embedding,
-                    limit=3
+                    query_vector=query_embedding, limit=3
                 )
-                
                 if search_results:
                     texts = []
                     for hit in search_results:
@@ -447,102 +408,68 @@ def chat():
                         if filename not in sources:
                             sources.append(filename)
                         texts.append(payload.get('text', ''))
-                    
                     if texts:
                         doc_context = "\n\n".join(texts[:3])
-            except Exception as e:
-                print(f"Qdrant search error: {e}")
+            except:
+                pass
         
-        # ========== BUILD SMART PROMPT ==========
-        
+        # Build prompt
         if is_greeting:
-            system_prompt = """You are a friendly, warm AI study assistant. 
-Give a VERY short, friendly greeting back (1 sentence). 
-Be warm and inviting. Mention they can ask about their studies.
-DO NOT answer any study questions. Keep it under 25 words."""
-            user_prompt = f"User: {user_message}\n\nShort, warm greeting:"
+            system_prompt = """You are a friendly AI assistant. Give a SHORT, warm greeting.
+Be natural and conversational. Keep it to 1-2 sentences.
+DO NOT mention documents, notes, or study materials."""
+            user_prompt = f"User: {user_message}\n\nFriendly response:"
             max_tokens = 60
-            
         elif is_personal:
-            system_prompt = """You are an AI study assistant. Answer honestly:
-- You are an AI chatbot created to help students with their course materials.
-- You don't know the user's name or personal details.
-- Be friendly but honest.
-Keep it to 1-2 sentences."""
-            user_prompt = f"User: {user_message}\n\nHonest, friendly response:"
-            max_tokens = 80
-            
+            system_prompt = """You are a friendly AI answering a personal question.
+Be honest: You're an AI assistant, not human. No physical location or personal history.
+Keep it short, friendly, and natural. DO NOT mention documents or notes."""
+            user_prompt = f"User: {user_message}\n\nNatural AI response:"
+            max_tokens = 100
         elif is_small_talk:
-            system_prompt = """You are a friendly AI assistant. Respond warmly to small talk.
-Keep it VERY short (1-2 sentences). Be positive and energetic.
-Then gently remind them you're here to help with studies."""
-            user_prompt = f"User: {user_message}\n\nWarm, short response:"
-            max_tokens = 80
-            
+            system_prompt = """Respond warmly to small talk. 1-2 sentences. Be positive.
+DO NOT mention documents or study materials."""
+            user_prompt = f"User: {user_message}\n\nNatural response:"
+            max_tokens = 60
         elif is_thanks:
-            system_prompt = """You are a friendly AI assistant. Respond to thanks warmly.
-Keep it VERY short (1 sentence). Be gracious."""
-            user_prompt = f"User: {user_message}\n\nGracious short response:"
+            system_prompt = "Respond to thanks warmly in 1 short sentence."
+            user_prompt = f"User: {user_message}\n\nGracious response:"
             max_tokens = 40
-            
         elif doc_context:
-            # STUDY MODE: Has document context
-            system_prompt = """You are a knowledgeable AI tutor helping a student. 
-You have access to their study notes AND your own vast knowledge.
+            system_prompt = """You are a helpful AI tutor. Answer naturally like any AI would.
 
-RULES:
-1. FIRST, check if the study notes contain relevant information.
-2. If YES: Answer based primarily on the notes, supplemented by your knowledge.
-3. If NO: Answer using your own knowledge as an AI.
-4. Keep answers clear and helpful - 2-4 sentences.
-5. Be conversational and friendly.
-6. For "what is X" questions, give a clear definition.
-7. For complex topics, give a concise explanation.
-8. Be accurate and educational."""
-            
-            user_prompt = f"""Study notes (may or may not be relevant):
+CRITICAL: NEVER mention "notes", "documents", "files", "PDFs", or "study materials".
+NEVER say "According to..." or "The documents say...".
+Just give the answer as if YOU know it. Be conversational and helpful.
+If the reference material helps, use it - but never attribute it.
+If it doesn't help, use your own knowledge.
+Keep answers clear - 3-5 sentences max."""
+            user_prompt = f"""Reference (use silently, NEVER mention):
 {doc_context[:800]}
 
-Student question: {user_message}
+Question: {user_message}
 
-Provide a helpful, accurate answer. Use the notes if relevant, otherwise use your own knowledge:"""
+Natural answer (DO NOT mention documents/notes/files):"""
             max_tokens = 250
-            
         else:
-            # GENERAL KNOWLEDGE MODE: No documents found or no documents uploaded
-            system_prompt = """You are a smart, knowledgeable AI assistant helping a student. 
-You have NO study notes for this question, so use your own vast knowledge.
-
-RULES:
-1. Answer the question directly and accurately.
-2. Be educational and helpful - like a good teacher.
-3. Keep it to 3-5 sentences for explanations.
-4. For definitions, 2-3 sentences is enough.
-5. If it's a complex topic, give a clear overview.
-6. If you're not sure about something, be honest.
-7. Be conversational and friendly.
-8. You can answer ANY general knowledge question - science, history, math, technology, etc."""
-            
-            user_prompt = f"Student asks: {user_message}\n\nProvide a helpful, educational answer using your knowledge:"
+            system_prompt = """You are a smart AI assistant. Answer naturally and helpfully.
+Answer ANY question using your knowledge. Be conversational.
+For definitions: 2-3 sentences. For explanations: 3-5 sentences.
+NEVER say you don't have documents. Just answer the question."""
+            user_prompt = f"Question: {user_message}\n\nNatural answer:"
             max_tokens = 300
         
-        # ========== GET AI RESPONSE ==========
+        # Get response
         response_text = None
         used_model = None
-        
         models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
         
         if groq_client == "http_fallback":
             for model in models_to_try:
                 try:
                     response_text = groq_chat_completion(
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt}
-                        ],
-                        model=model,
-                        max_tokens=max_tokens,
-                        temperature=0.7
+                        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                        model=model, max_tokens=max_tokens, temperature=0.7
                     )
                     used_model = model
                     break
@@ -553,12 +480,8 @@ RULES:
                 try:
                     completion = groq_client.chat.completions.create(
                         model=model,
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt}
-                        ],
-                        temperature=0.7,
-                        max_tokens=max_tokens
+                        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                        temperature=0.7, max_tokens=max_tokens
                     )
                     response_text = completion.choices[0].message.content
                     used_model = model
@@ -567,31 +490,39 @@ RULES:
                     continue
         
         if response_text:
-            # Clean up formatting
             response_text = re.sub(r'\*{1,3}', '', response_text)
             response_text = re.sub(r'#{1,4}\s*', '', response_text)
-            response_text = re.sub(r'\[Source:.*?\]', '', response_text)
+            
+            # Remove any mention of notes/documents/files
+            phrases_to_remove = [
+                r'(?i)according to the (study )?(notes|documents?|files?|PDFs?|materials?)[,.!]*\s*',
+                r'(?i)the (study )?(notes|documents?|files?|PDFs?|materials?) (say|mention|indicate|show|suggest|contain)[,.!]*\s*',
+                r'(?i)based on the (study )?(notes|documents?|files?|PDFs?|materials?)[,.!]*\s*',
+                r'(?i)I (don\'?t|do not) (have|see) (any |the )?(study )?(notes|documents?|files?|PDFs?|materials?)[,.!]*\s*',
+                r'(?i)the (study )?(notes|documents?|files?|PDFs?|materials?) (don\'?t|do not)[,.!]*\s*',
+                r'(?i)reference material[s]?[,.!]*\s*',
+                r'(?i)course material[s]?[,.!]*\s*',
+            ]
+            for phrase in phrases_to_remove:
+                response_text = re.sub(phrase, '', response_text)
             response_text = response_text.strip()
             
-            # Safety nets for casual responses
-            if is_greeting and len(response_text) > 100:
-                response_text = "Hey there! 👋 I'm your AI study assistant. How can I help you with your studies today?"
-            
-            if is_personal and ('your name is' in response_text.lower() or len(response_text) > 120):
-                response_text = "I'm an AI study assistant created to help you with your course materials. I don't know your name, but I'm here to help you learn! 😊"
-            
+            # Safety nets
+            if is_greeting and (len(response_text) > 100 or 'note' in response_text.lower()):
+                response_text = "Hey there! 👋 How can I help you today?"
+            if is_personal and ('note' in response_text.lower() or 'document' in response_text.lower() or len(response_text) > 120):
+                response_text = "I'm an AI assistant here to help with your questions! I don't have a physical location or personal history. 😊"
             if is_thanks and len(response_text) > 60:
                 response_text = "You're welcome! Happy to help! 😊"
+            if not response_text or len(response_text) < 5:
+                response_text = "Hey! How can I help you today? 😊"
             
             return jsonify({
                 'response': response_text,
-                'sources': list(set(sources))[:3] if sources and not is_casual else [],
-                'mode': 'study' if doc_context else ('general' if not is_casual else 'casual'),
-                'model': used_model
+                'sources': list(set(sources))[:3] if sources and not is_casual else []
             })
         else:
-            return jsonify({'response': "I'm having trouble processing that right now. Could you try asking again?"}), 500
-            
+            return jsonify({'response': "I'm having trouble right now. Could you try again?"}), 500
     except Exception as e:
         print(f"Chat error: {e}")
         return jsonify({'response': "Sorry, I encountered an issue. Please try again!"}), 500
@@ -604,8 +535,7 @@ def check_status():
             info = qdrant_client.get_collection("university_notes")
             doc_count = info.points_count
         except:
-            doc_count = 0
-    
+            pass
     return jsonify({
         'status': 'online',
         'documents_available': doc_count > 0,
@@ -622,12 +552,8 @@ def get_documents():
     if qdrant_client:
         try:
             scroll_results = qdrant_client.scroll(
-                collection_name="university_notes",
-                limit=100,
-                with_payload=True,
-                with_vectors=False
+                collection_name="university_notes", limit=100, with_payload=True, with_vectors=False
             )
-            
             seen = set()
             for point in scroll_results[0]:
                 filename = point.payload.get('filename', '')
@@ -650,10 +576,7 @@ def get_documents():
 def delete_document(doc_id):
     try:
         if qdrant_client:
-            qdrant_client.delete(
-                collection_name="university_notes",
-                points_selector=[doc_id]
-            )
+            qdrant_client.delete(collection_name="university_notes", points_selector=[doc_id])
         return jsonify({'success': True})
     except:
         return jsonify({'success': False}), 500
@@ -667,17 +590,11 @@ def get_admin_stats():
             info = qdrant_client.get_collection("university_notes")
             doc_count = info.points_count
         except:
-            doc_count = 0
-    
-    return jsonify({
-        'success': True,
-        'total_documents': doc_count,
-        'total_chunks': doc_count
-    })
+            pass
+    return jsonify({'success': True, 'total_documents': doc_count, 'total_chunks': doc_count})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 7860))
-    
     doc_count = 0
     if qdrant_client:
         try:
@@ -685,12 +602,9 @@ if __name__ == '__main__':
             doc_count = info.points_count
         except:
             pass
-    
     print("\n" + "="*60)
     print("🚀 SERVER STARTED")
-    print(f"📚 Documents in Qdrant: {doc_count}")
-    print(f"💾 HF Backup: {'Ready' if hf_api else 'Not configured'}")
+    print(f"📚 Documents: {doc_count}")
     print(f"🌐 http://0.0.0.0:{port}/")
     print("="*60 + "\n")
-    
     app.run(host='0.0.0.0', port=port, debug=False)
