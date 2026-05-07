@@ -372,25 +372,44 @@ def chat():
         
         user_lower = user_message.lower().strip()
         
-        # Classification
-        greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening', 
-                     'how are you', 'whats up', "what's up", 'sup', 'yo', 'hola',
-                     'hii', 'heyy', 'helloo', 'morning', 'evening']
-        personal_q = ['your name', 'who are you', 'what are you', 'know my name',
-                     'do you know me', 'who am i', 'what is my name',
-                     'about yourself', 'introduce yourself', 'who created you',
-                     'are you ai', 'are you human', 'your country', 'where are you from',
-                     'where do you live', 'are you real']
-        thanks = ['thank', 'thanks', 'thx', 'appreciate']
+        # ========== BETTER CLASSIFICATION ==========
         
-        is_greeting = any(g in user_lower for g in greetings) and len(user_message.split()) <= 4
-        is_personal = any(p in user_lower for p in personal_q)
-        is_thanks = any(t in user_lower for t in thanks) and len(user_message.split()) <= 4
-        is_casual = is_greeting or is_personal or is_thanks
+        # Check if it's a real question (contains question words or ends with ?)
+        question_words = ['what', 'who', 'where', 'when', 'why', 'how', 'which', 'whose', 'whom', 'can you', 'could you', 'tell me', 'explain', 'define', 'describe']
+        is_question = any(user_lower.startswith(q) for q in question_words) or user_message.strip().endswith('?')
         
-        # Search Qdrant
+        # Greetings (only if very short and no question)
+        greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening', 'sup', 'yo', 'hola', 'hii', 'heyy', 'helloo', 'morning', 'evening', 'good day']
+        is_greeting = any(user_lower == g or user_lower.startswith(g + ' ') for g in greetings) and len(user_message.split()) <= 3 and not is_question
+        
+        # Identity/AI questions
+        identity_q = ['who are you', 'what are you', 'your name', 'about yourself', 'introduce yourself', 'tell me about yourself', 'who created you', 'who made you', 'are you ai', 'are you human', 'are you real', 'are you a robot', 'are you a bot']
+        
+        # Location questions  
+        location_q = ['where are you', 'where do you live', 'your country', 'which country', 'where you from', 'your location', 'where were you', 'where did you']
+        
+        # Personal questions about user
+        user_personal_q = ['know my name', 'do you know me', 'who am i', 'what is my name', 'remember me', 'my name']
+        
+        is_identity = any(q in user_lower for q in identity_q)
+        is_location = any(q in user_lower for q in location_q) 
+        is_user_personal = any(q in user_lower for q in user_personal_q)
+        is_about_ai = is_identity or is_location
+        
+        # Thanks
+        thanks_words = ['thank', 'thanks', 'thx', 'appreciate']
+        is_thanks = any(t in user_lower for t in thanks_words) and len(user_message.split()) <= 4 and not is_question
+        
+        # Determine if casual chat
+        is_casual = is_greeting or is_thanks or is_about_ai or is_user_personal
+        
+        print(f"Message: {user_message}")
+        print(f"  is_greeting={is_greeting}, is_about_ai={is_about_ai}, is_question={is_question}, is_casual={is_casual}")
+        
+        # ========== SEARCH DOCUMENTS ==========
         doc_context = ""
         sources = []
+        
         if qdrant_client and embedding_model and not is_casual:
             try:
                 query_embedding = embedding_model.encode(user_message).tolist()
@@ -407,39 +426,75 @@ def chat():
                         texts.append(payload.get('text', ''))
                     if texts:
                         doc_context = "\n\n".join(texts[:3])
-            except:
-                pass
+            except Exception as e:
+                print(f"Search error: {e}")
         
-        # Build prompt
+        # ========== BUILD PROMPT ==========
+        
         if is_greeting:
-            system_prompt = "You are a friendly AI. Give a SHORT warm greeting (1 sentence). Keep it under 25 words. DO NOT mention documents or notes."
-            user_prompt = f"User: {user_message}\n\nShort greeting:"
-            max_tokens = 60
-        elif is_personal:
-            system_prompt = """You are a friendly AI assistant. Answer naturally.
-CRITICAL: NEVER mention "study notes", "documents", "files", or "PDFs".
-NEVER say "the notes mention" or reference any universities from documents.
-Just say you're an AI assistant with no physical location. Keep to 1-2 friendly sentences."""
-            user_prompt = f"User: {user_message}\n\nNatural AI response (NO mention of documents/notes):"
+            system_prompt = "You are a friendly AI assistant. Respond with a SHORT, warm greeting. 1 sentence only. Keep it natural and conversational."
+            user_prompt = f"User: {user_message}\n\nShort, friendly greeting:"
+            max_tokens = 50
+            
+        elif is_identity:
+            system_prompt = """You are an AI assistant. Answer honestly about yourself.
+Tell them: You're an AI assistant created to help people learn and answer questions. 
+You don't have a physical form, location, or personal identity.
+Keep it friendly and conversational. 2-3 sentences."""
+            user_prompt = f"User asks: {user_message}\n\nFriendly, honest response about being an AI:"
+            max_tokens = 100
+            
+        elif is_location:
+            system_prompt = """You are an AI assistant. Answer honestly about your location.
+Tell them: You're an AI, so you don't have a physical location or country. You exist in the cloud.
+Keep it friendly and light. 2 sentences."""
+            user_prompt = f"User asks: {user_message}\n\nFriendly response about not having a physical location:"
             max_tokens = 80
+            
+        elif is_user_personal:
+            system_prompt = "You are an AI assistant. Honestly tell the user you don't know their name or personal details, but you're happy to help them learn. Be friendly. 2 sentences."
+            user_prompt = f"User asks: {user_message}\n\nFriendly honest response:"
+            max_tokens = 60
+            
         elif is_thanks:
-            system_prompt = "Respond to thanks warmly in 1 short sentence."
-            user_prompt = f"User: {user_message}\n\nResponse:"
-            max_tokens = 40
+            system_prompt = "You are a friendly AI. Respond to thanks warmly. 1 very short sentence."
+            user_prompt = f"User: {user_message}\n\nGracious response:"
+            max_tokens = 30
+            
         elif doc_context:
-            system_prompt = """You are a helpful AI tutor. Answer naturally.
-CRITICAL: NEVER say "the study notes", "the documents", "the files", "the PDFs", or "according to".
-NEVER reference file names, specific universities, or where information came from.
-Just give the answer directly as if YOU know it. Use reference material silently.
-Be conversational. 3-5 sentences max."""
-            user_prompt = f"Reference (read silently, NEVER mention):\n{doc_context[:800]}\n\nQuestion: {user_message}\n\nNatural answer (NO mention of documents/notes/sources):"
+            system_prompt = """You are a helpful AI tutor. Answer the question naturally.
+
+CRITICAL RULES:
+1. NEVER mention "study notes", "documents", "files", "PDFs", "lecture notes", or "course materials".
+2. NEVER say "According to..." or "The notes show..." or "Based on...".
+3. NEVER reference where you got the information.
+4. Just answer as if you naturally know the answer - like ChatGPT would.
+5. Use the reference material silently to inform your answer.
+6. Be clear and conversational.
+7. 3-5 sentences for explanations, 2-3 for definitions."""
+            
+            user_prompt = f"""Reference material (read silently - NEVER mention it exists):
+{doc_context[:800]}
+
+Question: {user_message}
+
+Give a natural, direct answer as if you know it yourself:"""
             max_tokens = 250
+            
         else:
-            system_prompt = "You are a smart AI. Answer naturally using your knowledge. Be conversational. 3-5 sentences for explanations, 2-3 for definitions."
-            user_prompt = f"Question: {user_message}\n\nNatural answer:"
+            system_prompt = """You are a smart, knowledgeable AI assistant. Answer questions naturally and helpfully.
+
+Rules:
+1. Answer directly and clearly.
+2. Be conversational and friendly.
+3. 3-5 sentences for explanations, 2-3 for definitions.
+4. Use your own knowledge confidently.
+5. You can answer ANY topic - science, history, math, technology, etc."""
+            
+            user_prompt = f"Question: {user_message}\n\nHelpful, natural answer:"
             max_tokens = 300
         
-        # Get response
+        # ========== GET RESPONSE ==========
         response_text = None
         models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
         
@@ -470,36 +525,36 @@ Be conversational. 3-5 sentences max."""
             response_text = re.sub(r'\*{1,3}', '', response_text)
             response_text = re.sub(r'#{1,4}\s*', '', response_text)
             
-            # Aggressively remove any mention of notes/documents/files
-            bad_phrases = [
-                r'(?i).*study notes.*\.?\s*',
-                r'(?i).*the documents? (say|mention|show|contain|don).*\.?\s*',
-                r'(?i).*according to the.*\.?\s*',
-                r'(?i).*based on the.*\.?\s*',
-                r'(?i).*the (notes|documents?|files?|PDFs?).*\.?\s*',
-                r'(?i).*however,? I can tell you.*\.?\s*',
-                r'(?i).*reference material.*\.?\s*',
+            # Remove any document mentions
+            doc_phrases = [
+                r'(?i).*study notes.*?\.\s*',
+                r'(?i).*the (documents?|files?|PDFs?|notes).*?\.\s*',
+                r'(?i).*according to.*?\.\s*',
+                r'(?i).*based on.*?\.\s*',
+                r'(?i).*reference material.*?\.\s*',
+                r'(?i).*course (materials?|notes).*?\.\s*',
             ]
-            for phrase in bad_phrases:
+            for phrase in doc_phrases:
                 response_text = re.sub(phrase, '', response_text)
             response_text = response_text.strip()
             
-            # Safety nets
-            if is_greeting and (len(response_text) > 100 or 'note' in response_text.lower() or 'document' in response_text.lower()):
+            # Fallbacks for empty/inappropriate responses
+            if is_greeting and (len(response_text) < 3 or len(response_text) > 80):
                 response_text = "Hey there! 👋 How can I help you today?"
-            if is_personal and ('note' in response_text.lower() or 'document' in response_text.lower() or 'australia' in response_text.lower() or len(response_text) > 100):
-                response_text = "I'm an AI assistant here to help with your questions! I don't have a physical location or country - I exist purely to chat and help you learn. 😊"
-            if is_thanks and len(response_text) > 50:
+            if is_about_ai and len(response_text) < 10:
+                response_text = "I'm an AI assistant! I don't have a physical location or country - I exist in the cloud to help you learn and answer questions. 😊"
+            if is_thanks and len(response_text) > 40:
                 response_text = "You're welcome! 😊"
-            if not response_text or len(response_text) < 3:
-                response_text = "Hey! How can I help you today? 😊"
+            if not response_text or len(response_text) < 2:
+                response_text = "How can I help you today?"
             
             return jsonify({
                 'response': response_text,
                 'sources': []
             })
         else:
-            return jsonify({'response': "I'm having trouble right now. Could you try again?"}), 500
+            return jsonify({'response': "I'm having trouble right now. Could you try asking again?"}), 500
+            
     except Exception as e:
         print(f"Chat error: {e}")
         return jsonify({'response': "Sorry, I encountered an issue. Please try again!"}), 500
