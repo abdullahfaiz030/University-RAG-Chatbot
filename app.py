@@ -396,20 +396,40 @@ def chat():
         if not groq_client:
             return jsonify({'response': 'AI service not available.'}), 500
         
-        # --- DETECT GREETINGS ---
+        # ========== SMART MESSAGE CLASSIFICATION ==========
+        user_lower = user_message.lower().strip()
+        
+        # 1. Greetings
         greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening', 
                      'how are you', 'whats up', "what's up", 'sup', 'yo', 'hola', 'helo',
-                     'hii', 'heyy', 'helloo', 'good day', 'greetings', 'howdy']
+                     'hii', 'heyy', 'helloo', 'good day', 'greetings', 'howdy', 'morning']
         
-        user_lower = user_message.lower().strip()
-        is_greeting = any(g in user_lower for g in greetings)
+        # 2. Personal/Identity questions
+        personal_questions = ['your name', 'who are you', 'what are you', 'know my name',
+                             'do you know me', 'who am i', 'what is my name', 'remember me',
+                             'about yourself', 'introduce yourself', 'tell me about yourself',
+                             'who created you', 'who made you', 'are you ai', 'are you human']
+        
+        # 3. Small talk
+        small_talk = ['how are you', 'how do you do', 'how is it going', 'how are things',
+                      'how have you been', 'whats going on', "what's going on", 'whats new']
+        
+        # 4. Thank you
+        thanks = ['thank', 'thanks', 'thx', 'appreciate', 'grateful']
+        
+        is_greeting = any(g in user_lower for g in greetings) and len(user_message.split()) <= 3
+        is_personal = any(p in user_lower for p in personal_questions)
+        is_small_talk = any(s in user_lower for s in small_talk)
+        is_thanks = any(t in user_lower for t in thanks) and len(user_message.split()) <= 3
         is_very_short = len(user_message.split()) <= 2
         
-        # Search Qdrant (skip for greetings)
+        is_casual = is_greeting or is_personal or is_small_talk or is_thanks or (is_very_short and not any(c.isdigit() for c in user_message))
+        
+        # ========== SEARCH DOCUMENTS (skip for casual chat) ==========
         doc_context = ""
         sources = []
         
-        if qdrant_client and embedding_model and not is_greeting:
+        if qdrant_client and embedding_model and not is_casual:
             try:
                 query_embedding = embedding_model.encode(user_message).tolist()
                 
@@ -433,40 +453,87 @@ def chat():
             except Exception as e:
                 print(f"Qdrant search error: {e}")
         
-        # --- BUILD PROMPT BASED ON MESSAGE TYPE ---
-        if is_greeting or (is_very_short and not doc_context):
-            system_prompt = """You are a friendly AI study assistant. The user is greeting you.
+        # ========== BUILD SMART PROMPT ==========
+        
+        if is_greeting:
+            system_prompt = """You are a friendly, warm AI study assistant. 
+Give a VERY short, friendly greeting back (1 sentence). 
+Be warm and inviting. Mention they can ask about their studies.
+DO NOT answer any study questions. Keep it under 25 words."""
+            user_prompt = f"User: {user_message}\n\nShort, warm greeting:"
+            max_tokens = 60
             
-RULES:
-1. Respond with a SHORT, warm, friendly greeting (1-2 sentences max).
-2. Introduce yourself briefly as their study assistant.
-3. Mention they can ask about their course materials.
-4. DO NOT mention any documents, files, or technical terms.
-5. DO NOT answer any questions - just greet them back warmly.
-6. Keep it under 30 words."""
+        elif is_personal:
+            system_prompt = """You are an AI study assistant. Answer honestly:
+- You are an AI chatbot created to help students with their course materials.
+- You don't know the user's name or personal details.
+- Be friendly but honest.
+Keep it to 1-2 sentences."""
+            user_prompt = f"User: {user_message}\n\nHonest, friendly response:"
+            max_tokens = 80
             
-            user_prompt = f"User says: {user_message}\n\nGive a short, friendly greeting back. Do NOT answer any questions or mention any study topics:"
+        elif is_small_talk:
+            system_prompt = """You are a friendly AI assistant. Respond warmly to small talk.
+Keep it VERY short (1-2 sentences). Be positive and energetic.
+Then gently remind them you're here to help with studies."""
+            user_prompt = f"User: {user_message}\n\nWarm, short response:"
+            max_tokens = 80
+            
+        elif is_thanks:
+            system_prompt = """You are a friendly AI assistant. Respond to thanks warmly.
+Keep it VERY short (1 sentence). Be gracious."""
+            user_prompt = f"User: {user_message}\n\nGracious short response:"
+            max_tokens = 40
             
         elif doc_context:
-            system_prompt = """You are chatting with a student who needs quick, clear answers from their study notes.
+            # STUDY MODE: Has document context
+            system_prompt = """You are a knowledgeable AI tutor helping a student. 
+You have access to their study notes AND your own vast knowledge.
 
 RULES:
-1. Give ONE short answer in 2-3 sentences max.
-2. Write like you're texting a friend - casual, simple words.
-3. NO paragraphs, NO bullet points, NO lists.
-4. Just state the answer directly and simply.
-5. Keep it under 50 words if possible."""
+1. FIRST, check if the study notes contain relevant information.
+2. If YES: Answer based primarily on the notes, supplemented by your knowledge.
+3. If NO: Answer using your own knowledge as an AI.
+4. Keep answers clear and helpful - 2-4 sentences.
+5. Be conversational and friendly.
+6. For "what is X" questions, give a clear definition.
+7. For complex topics, give a concise explanation.
+8. Be accurate and educational."""
+            
+            user_prompt = f"""Study notes (may or may not be relevant):
+{doc_context[:800]}
 
-            user_prompt = f"""Notes for reference:\n{doc_context[:500]}\n\nStudent asks: {user_message}\n\nGive a single, short, direct answer (2-3 sentences):"""
+Student question: {user_message}
+
+Provide a helpful, accurate answer. Use the notes if relevant, otherwise use your own knowledge:"""
+            max_tokens = 250
+            
         else:
-            system_prompt = "You are a helpful study assistant. Give short, simple answers. 2-3 sentences max. Casual tone."
-            user_prompt = f"Question: {user_message}\n\nShort answer:"
+            # GENERAL KNOWLEDGE MODE: No documents found or no documents uploaded
+            system_prompt = """You are a smart, knowledgeable AI assistant helping a student. 
+You have NO study notes for this question, so use your own vast knowledge.
+
+RULES:
+1. Answer the question directly and accurately.
+2. Be educational and helpful - like a good teacher.
+3. Keep it to 3-5 sentences for explanations.
+4. For definitions, 2-3 sentences is enough.
+5. If it's a complex topic, give a clear overview.
+6. If you're not sure about something, be honest.
+7. Be conversational and friendly.
+8. You can answer ANY general knowledge question - science, history, math, technology, etc."""
+            
+            user_prompt = f"Student asks: {user_message}\n\nProvide a helpful, educational answer using your knowledge:"
+            max_tokens = 300
         
-        # Get response
+        # ========== GET AI RESPONSE ==========
         response_text = None
+        used_model = None
+        
+        models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
         
         if groq_client == "http_fallback":
-            for model in ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"]:
+            for model in models_to_try:
                 try:
                     response_text = groq_chat_completion(
                         messages=[
@@ -474,14 +541,15 @@ RULES:
                             {"role": "user", "content": user_prompt}
                         ],
                         model=model,
-                        max_tokens=100 if is_greeting else 150,
+                        max_tokens=max_tokens,
                         temperature=0.7
                     )
+                    used_model = model
                     break
                 except:
                     continue
         else:
-            for model in ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"]:
+            for model in models_to_try:
                 try:
                     completion = groq_client.chat.completions.create(
                         model=model,
@@ -490,40 +558,43 @@ RULES:
                             {"role": "user", "content": user_prompt}
                         ],
                         temperature=0.7,
-                        max_tokens=100 if is_greeting else 150
+                        max_tokens=max_tokens
                     )
                     response_text = completion.choices[0].message.content
+                    used_model = model
                     break
                 except:
                     continue
         
         if response_text:
+            # Clean up formatting
             response_text = re.sub(r'\*{1,3}', '', response_text)
             response_text = re.sub(r'#{1,4}\s*', '', response_text)
+            response_text = re.sub(r'\[Source:.*?\]', '', response_text)
             response_text = response_text.strip()
             
-            # If greeting gave technical response, replace it
-            if is_greeting:
-                technical_terms = ['RAD', 'model', 'software', 'development', 'system', 'process', 
-                                  'document', 'file', 'pdf', 'lecture', 'notes', 'chunk']
-                has_technical = any(term.lower() in response_text.lower() for term in technical_terms)
-                if has_technical or len(response_text) > 100:
-                    response_text = "Hey there! 👋 I'm your AI study assistant. Feel free to ask me anything about your course materials!"
+            # Safety nets for casual responses
+            if is_greeting and len(response_text) > 100:
+                response_text = "Hey there! 👋 I'm your AI study assistant. How can I help you with your studies today?"
             
-            sentences = re.split(r'(?<=[.!?])\s+', response_text)
-            if len(sentences) > 2:
-                response_text = ' '.join(sentences[:2])
+            if is_personal and ('your name is' in response_text.lower() or len(response_text) > 120):
+                response_text = "I'm an AI study assistant created to help you with your course materials. I don't know your name, but I'm here to help you learn! 😊"
+            
+            if is_thanks and len(response_text) > 60:
+                response_text = "You're welcome! Happy to help! 😊"
             
             return jsonify({
                 'response': response_text,
-                'sources': list(set(sources))[:3] if sources and not is_greeting else []
+                'sources': list(set(sources))[:3] if sources and not is_casual else [],
+                'mode': 'study' if doc_context else ('general' if not is_casual else 'casual'),
+                'model': used_model
             })
         else:
-            return jsonify({'response': "Hey! I'm your study assistant. Ask me anything about your course materials! 👋"}), 500
+            return jsonify({'response': "I'm having trouble processing that right now. Could you try asking again?"}), 500
             
     except Exception as e:
         print(f"Chat error: {e}")
-        return jsonify({'response': "Hey! How can I help you study today?"}), 500
+        return jsonify({'response': "Sorry, I encountered an issue. Please try again!"}), 500
 
 @app.route('/check-status', methods=['GET'])
 def check_status():
