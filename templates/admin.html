@@ -6,7 +6,7 @@
     <title>Admin Panel - Document Management</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 </head>
 <body>
     <div class="admin-container">
@@ -20,15 +20,15 @@
             <nav class="sidebar-nav">
                 <a href="#upload" class="nav-item active" onclick="showSection('upload')">
                     <i class="fas fa-cloud-upload-alt"></i>
-                    <span>Upload Documents</span>
+                    <span>Upload</span>
                 </a>
                 <a href="#documents" class="nav-item" onclick="showSection('documents')">
-                    <i class="fas fa-folder"></i>
-                    <span>Manage Documents</span>
+                    <i class="fas fa-folder-tree"></i>
+                    <span>Documents</span>
                 </a>
                 <a href="#stats" class="nav-item" onclick="showSection('stats')">
-                    <i class="fas fa-chart-bar"></i>
-                    <span>Statistics</span>
+                    <i class="fas fa-chart-pie"></i>
+                    <span>Stats</span>
                 </a>
             </nav>
             
@@ -47,36 +47,87 @@
             <!-- Upload Section -->
             <div id="upload-section" class="content-section active">
                 <div class="section-header">
-                    <h2><i class="fas fa-cloud-upload-alt"></i> Upload Documents</h2>
-                    <p>Upload documents to train the AI chatbot. Supported formats: PDF, DOCX, TXT, CSV, XLSX</p>
+                    <div>
+                        <h2><i class="fas fa-cloud-upload-alt"></i> Upload Documents</h2>
+                        <p>Organize documents by category before uploading</p>
+                    </div>
                 </div>
                 
+                <!-- Category Selection -->
                 <div class="upload-container">
+                    <label style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; display: block;">Select Category:</label>
+                    <div class="category-selector" id="categorySelector">
+                        <span class="category-tag active" data-category="">📁 All</span>
+                        <span class="category-tag" data-category="Year1-Sem1">📚 Year 1 - Sem 1</span>
+                        <span class="category-tag" data-category="Year1-Sem2">📚 Year 1 - Sem 2</span>
+                        <span class="category-tag" data-category="Year2-Sem1">📚 Year 2 - Sem 1</span>
+                        <span class="category-tag" data-category="Year2-Sem2">📚 Year 2 - Sem 2</span>
+                        <span class="category-tag" data-category="Year3-Sem1">📚 Year 3 - Sem 1</span>
+                        <span class="category-tag" data-category="Year3-Sem2">📚 Year 3 - Sem 2</span>
+                        <span class="category-tag" data-category="Year4-Sem1">📚 Year 4 - Sem 1</span>
+                        <span class="category-tag" data-category="Year4-Sem2">📚 Year 4 - Sem 2</span>
+                    </div>
+                    
+                    <!-- Custom Category Input -->
+                    <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+                        <input type="text" id="customCategory" placeholder="Or type custom category (e.g., CSH31221, Dr.Smith, Assignments)..." 
+                               style="flex: 1; padding: 8px 12px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 12px;">
+                        <button onclick="addCustomCategory()" style="padding: 8px 14px; background: var(--surface-light); border: 1px solid var(--border); color: var(--text); border-radius: 8px; cursor: pointer; font-size: 12px;">
+                            <i class="fas fa-plus"></i> Add
+                        </button>
+                    </div>
+                    
+                    <!-- Folder Path Display -->
+                    <div class="folder-tree" id="folderPath">
+                        <i class="fas fa-folder-open" style="color: var(--primary-light);"></i>
+                        <span onclick="setCategory('')">Root</span>
+                        <i class="fas fa-chevron-right"></i>
+                        <span id="currentFolder">All Documents</span>
+                    </div>
+                    
+                    <!-- Upload Zone -->
                     <div class="upload-zone" id="uploadZone">
                         <i class="fas fa-cloud-upload-alt"></i>
                         <h3>Drag & Drop Files Here</h3>
                         <p>or click to browse files</p>
-                        <span class="file-types">Maximum file size: 16MB</span>
+                        <span class="file-types">PDF • DOCX • TXT • CSV • XLSX | Max 16MB</span>
                         <input type="file" id="fileInput" multiple accept=".pdf,.docx,.txt,.csv,.xlsx,.xls" hidden>
                     </div>
                     
                     <div class="upload-list" id="uploadList"></div>
                     
                     <button class="upload-btn" id="uploadBtn" onclick="uploadFiles()" disabled>
-                        <i class="fas fa-upload"></i> Upload to Database
+                        <i class="fas fa-upload"></i> Upload to <span id="uploadCategoryText">All Documents</span>
                     </button>
                 </div>
                 
-                <div class="upload-progress" id="uploadProgress"></div>
+                <div id="uploadProgress" style="margin-top: 15px;"></div>
             </div>
             
             <!-- Documents Section -->
             <div id="documents-section" class="content-section">
                 <div class="section-header">
-                    <h2><i class="fas fa-folder"></i> Document Library</h2>
+                    <div>
+                        <h2><i class="fas fa-folder-tree"></i> Document Library</h2>
+                        <p>Browse documents by category</p>
+                    </div>
                     <button class="refresh-btn" onclick="loadDocuments()">
                         <i class="fas fa-sync-alt"></i> Refresh
                     </button>
+                </div>
+                
+                <!-- Quick Folder Access -->
+                <div class="quick-folders" id="quickFolders"></div>
+                
+                <!-- Filter Bar -->
+                <div style="display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center;">
+                    <input type="text" id="docSearch" placeholder="🔍 Search documents..." 
+                           oninput="filterDocuments()"
+                           style="flex: 1; min-width: 200px; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: 13px;">
+                    <select id="categoryFilter" onchange="filterDocuments()" 
+                            style="padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: 13px;">
+                        <option value="">All Categories</option>
+                    </select>
                 </div>
                 
                 <div class="documents-grid" id="documentsGrid">
@@ -90,47 +141,36 @@
             <!-- Statistics Section -->
             <div id="stats-section" class="content-section">
                 <div class="section-header">
-                    <h2><i class="fas fa-chart-bar"></i> System Statistics</h2>
+                    <h2><i class="fas fa-chart-pie"></i> System Statistics</h2>
                 </div>
                 
                 <div class="stats-grid">
                     <div class="stat-card">
-                        <div class="stat-icon">
-                            <i class="fas fa-file-alt"></i>
-                        </div>
+                        <div class="stat-icon"><i class="fas fa-file-alt"></i></div>
                         <div class="stat-info">
                             <span class="stat-value" id="statDocuments">0</span>
                             <span class="stat-label">Total Documents</span>
                         </div>
                     </div>
-                    
                     <div class="stat-card">
-                        <div class="stat-icon">
-                            <i class="fas fa-cubes"></i>
-                        </div>
+                        <div class="stat-icon"><i class="fas fa-cubes"></i></div>
                         <div class="stat-info">
                             <span class="stat-value" id="statChunks">0</span>
                             <span class="stat-label">Document Chunks</span>
                         </div>
                     </div>
-                    
                     <div class="stat-card">
-                        <div class="stat-icon">
-                            <i class="fas fa-database"></i>
+                        <div class="stat-icon"><i class="fas fa-folder"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="statCategories">0</span>
+                            <span class="stat-label">Categories</span>
                         </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-database"></i></div>
                         <div class="stat-info">
                             <span class="stat-value" id="statStorage">0 MB</span>
                             <span class="stat-label">Storage Used</span>
-                        </div>
-                    </div>
-                    
-                    <div class="stat-card">
-                        <div class="stat-icon">
-                            <i class="fas fa-clock"></i>
-                        </div>
-                        <div class="stat-info">
-                            <span class="stat-value" id="statLastUpload">Never</span>
-                            <span class="stat-label">Last Upload</span>
                         </div>
                     </div>
                 </div>
