@@ -1,11 +1,15 @@
 let selectedFiles = [];
-let selectedCategory = '';
 let allDocuments = [];
+let folderStructure = {};
+
+// Navigation state
+let uploadPath = [];
+let browsePath = [];
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     setupUploadZone();
-    setupCategorySelector();
+    loadFolderStructure();
     loadStats();
 });
 
@@ -16,66 +20,331 @@ function showSection(sectionName) {
     document.querySelectorAll('.content-section').forEach(section => section.classList.remove('active'));
     document.getElementById(`${sectionName}-section`).classList.add('active');
     
-    if (sectionName === 'documents') loadDocuments();
+    if (sectionName === 'documents') loadAllDocuments();
+    if (sectionName === 'browse') renderBrowseView();
     if (sectionName === 'stats') loadStats();
 }
 
-// ============ CATEGORY MANAGEMENT ============
+// ============ FOLDER STRUCTURE ============
 
-function setupCategorySelector() {
-    document.querySelectorAll('.category-tag').forEach(tag => {
-        tag.addEventListener('click', function() {
-            document.querySelectorAll('.category-tag').forEach(t => t.classList.remove('active'));
-            this.classList.add('active');
-            selectedCategory = this.dataset.category;
-            document.getElementById('currentFolder').textContent = selectedCategory || 'All Documents';
-            document.getElementById('uploadCategoryText').textContent = selectedCategory || 'All Documents';
-        });
-    });
+async function loadFolderStructure() {
+    try {
+        const response = await fetch('/admin/documents');
+        const data = await response.json();
+        
+        if (data.documents) {
+            allDocuments = data.documents;
+            buildFolderStructure();
+            renderUploadFolders();
+        }
+    } catch (error) {
+        console.error('Failed to load folder structure:', error);
+    }
 }
 
-function addCustomCategory() {
-    const input = document.getElementById('customCategory');
-    const category = input.value.trim();
+function buildFolderStructure() {
+    folderStructure = {};
     
-    if (!category) return;
+    allDocuments.forEach(doc => {
+        const path = doc.category || 'Uncategorized';
+        const parts = path.split('/');
+        
+        let current = folderStructure;
+        parts.forEach((part, index) => {
+            if (!current[part]) {
+                current[part] = {
+                    name: part,
+                    files: [],
+                    subfolders: {},
+                    count: 0
+                };
+            }
+            if (index === parts.length - 1) {
+                current[part].files.push(doc);
+                current[part].count++;
+            }
+            current = current[part].subfolders;
+        });
+    });
     
-    // Check if already exists
-    const existing = document.querySelector(`.category-tag[data-category="${category}"]`);
-    if (existing) {
-        existing.click();
-        input.value = '';
+    // Count total items in each folder
+    countFolderItems(folderStructure);
+}
+
+function countFolderItems(structure) {
+    Object.values(structure).forEach(folder => {
+        let total = folder.files.length;
+        Object.values(folder.subfolders).forEach(sub => {
+            total += countFolderItems({sub}) || sub.count;
+        });
+        folder.totalItems = total;
+    });
+    return Object.values(structure).reduce((sum, f) => sum + f.totalItems, 0);
+}
+
+// ============ UPLOAD SECTION ============
+
+function renderUploadFolders() {
+    const container = document.getElementById('uploadFolders');
+    let current = folderStructure;
+    
+    // Navigate to current path
+    uploadPath.forEach(part => {
+        if (current[part]) current = current[part].subfolders;
+    });
+    
+    // Update breadcrumb
+    updateUploadBreadcrumb();
+    
+    // Render subfolders
+    const folders = Object.entries(current);
+    
+    if (folders.length === 0) {
+        container.innerHTML = `
+            <div style="grid-column: 1/-1; text-align: center; padding: 30px; color: var(--text-secondary);">
+                <i class="fas fa-folder-open" style="font-size: 40px; opacity: 0.3; margin-bottom: 10px; display: block;"></i>
+                <p>This folder is empty</p>
+                <p style="font-size: 11px;">Create a subfolder or upload files here</p>
+            </div>
+        `;
+    } else {
+        container.innerHTML = folders.map(([name, folder]) => `
+            <div class="folder-card" onclick="navigateUploadPath([...uploadPath, '${name.replace(/'/g, "\\'")}'])">
+                <i class="fas fa-folder folder-icon" style="color: ${getFolderColor(name)};"></i>
+                <div class="folder-name">${name}</div>
+                <div class="folder-info">${folder.totalItems || folder.files.length} items</div>
+                ${folder.totalItems > 0 ? `<span class="folder-badge">${folder.totalItems}</span>` : ''}
+            </div>
+        `).join('');
+    }
+    
+    // Show files in current folder
+    let currentFolder = folderStructure;
+    uploadPath.forEach(part => {
+        if (currentFolder[part]) currentFolder = currentFolder[part];
+    });
+    
+    const files = currentFolder.files || [];
+    if (files.length > 0) {
+        container.innerHTML += `
+            <div style="grid-column: 1/-1; margin-top: 8px; padding-top: 16px; border-top: 1px solid var(--border);">
+                <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
+                    <i class="fas fa-file-alt"></i> ${files.length} file(s) in this folder
+                </p>
+            </div>
+        `;
+    }
+}
+
+function navigateUploadPath(path) {
+    uploadPath = path;
+    renderUploadFolders();
+    document.getElementById('uploadCategoryText').textContent = path.join(' / ') || 'Root';
+}
+
+function updateUploadBreadcrumb() {
+    const breadcrumb = document.getElementById('uploadBreadcrumb');
+    let html = '<span class="breadcrumb-item" onclick="navigateUploadPath([])">🏠 Root</span>';
+    
+    uploadPath.forEach((part, index) => {
+        const path = uploadPath.slice(0, index + 1);
+        html += ` › <span class="breadcrumb-item" onclick="navigateUploadPath(${JSON.stringify(path)})">📁 ${part}</span>`;
+    });
+    
+    breadcrumb.innerHTML = html;
+}
+
+function createNewFolder(type) {
+    const input = document.getElementById('newFolderName');
+    const name = input.value.trim();
+    
+    if (!name) return;
+    
+    const path = type === 'upload' ? uploadPath : browsePath;
+    const fullPath = [...path, name].join('/');
+    
+    // Add to folder structure
+    let current = folderStructure;
+    path.forEach(part => {
+        if (!current[part]) {
+            current[part] = { name: part, files: [], subfolders: {}, count: 0, totalItems: 0 };
+        }
+        current = current[part].subfolders;
+    });
+    
+    if (!current[name]) {
+        current[name] = { name: name, files: [], subfolders: {}, count: 0, totalItems: 0 };
+    }
+    
+    input.value = '';
+    
+    if (type === 'upload') {
+        renderUploadFolders();
+    } else {
+        renderBrowseView();
+    }
+    
+    // Show success toast
+    showToast(`Folder "${name}" created!`);
+}
+
+function getCurrentUploadPath() {
+    return uploadPath.join('/');
+}
+
+// ============ BROWSE SECTION ============
+
+function renderBrowseView() {
+    updateBrowseBreadcrumb();
+    renderBrowseFolders();
+    renderBrowseFiles();
+}
+
+function updateBrowseBreadcrumb() {
+    const breadcrumb = document.getElementById('browseBreadcrumb');
+    let html = '<span class="breadcrumb-item active" onclick="navigateBrowsePath([])">🏠 Root</span>';
+    
+    browsePath.forEach((part, index) => {
+        const path = browsePath.slice(0, index + 1);
+        html += ` › <span class="breadcrumb-item active" onclick="navigateBrowsePath(${JSON.stringify(path)})">📁 ${part}</span>`;
+    });
+    
+    breadcrumb.innerHTML = html;
+}
+
+function navigateBrowsePath(path) {
+    browsePath = path;
+    renderBrowseView();
+}
+
+function renderBrowseFolders() {
+    const container = document.getElementById('browseFolders');
+    let current = folderStructure;
+    
+    browsePath.forEach(part => {
+        if (current[part]) current = current[part].subfolders;
+    });
+    
+    const folders = Object.entries(current);
+    
+    if (folders.length === 0) {
+        container.innerHTML = `
+            <div style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--text-secondary);">
+                <i class="fas fa-folder-open" style="font-size: 50px; opacity: 0.3; margin-bottom: 12px; display: block;"></i>
+                <p style="font-size: 14px;">No subfolders here</p>
+            </div>
+        `;
+    } else {
+        container.innerHTML = folders.map(([name, folder]) => `
+            <div class="folder-card" ondblclick="navigateBrowsePath([...browsePath, '${name.replace(/'/g, "\\'")}'])">
+                <i class="fas fa-folder folder-icon" style="color: ${getFolderColor(name)};"></i>
+                <div class="folder-name">${name}</div>
+                <div class="folder-info">
+                    ${Object.keys(folder.subfolders).length} subfolders • ${folder.files.length} files
+                </div>
+                <span class="folder-badge">${folder.totalItems || folder.files.length}</span>
+                <button class="action-btn" onclick="event.stopPropagation(); navigateBrowsePath([...browsePath, '${name.replace(/'/g, "\\'")}'])" 
+                        style="margin-top: 8px; width: 100%;">
+                    <i class="fas fa-arrow-right"></i> Open
+                </button>
+            </div>
+        `).join('');
+    }
+}
+
+function renderBrowseFiles() {
+    const container = document.getElementById('browseFiles');
+    let current = folderStructure;
+    
+    browsePath.forEach(part => {
+        if (current[part]) current = current[part];
+    });
+    
+    const files = current.files || [];
+    
+    if (files.length === 0) {
+        container.innerHTML = `
+            <div style="text-align: center; padding: 30px; color: var(--text-secondary);">
+                <i class="fas fa-file-alt" style="font-size: 30px; opacity: 0.3; margin-bottom: 8px; display: block;"></i>
+                <p style="font-size: 13px;">No files in this folder</p>
+            </div>
+        `;
         return;
     }
     
-    // Add new category tag
-    const selector = document.getElementById('categorySelector');
-    const tag = document.createElement('span');
-    tag.className = 'category-tag';
-    tag.dataset.category = category;
-    tag.textContent = '📁 ' + category;
-    tag.addEventListener('click', function() {
-        document.querySelectorAll('.category-tag').forEach(t => t.classList.remove('active'));
-        this.classList.add('active');
-        selectedCategory = this.dataset.category;
-        document.getElementById('currentFolder').textContent = selectedCategory;
-        document.getElementById('uploadCategoryText').textContent = selectedCategory;
-    });
-    
-    selector.appendChild(tag);
-    tag.click();
-    input.value = '';
+    container.innerHTML = files.map(doc => `
+        <div class="file-card">
+            <i class="fas ${getFileIcon(doc.file_type)} file-icon" style="color: ${getFolderColor(doc.file_type)};"></i>
+            <div class="file-details">
+                <div class="file-name">${doc.filename}</div>
+                <div class="file-meta">
+                    ${doc.chunks} chunks • ${formatDate(doc.upload_date)} • ${doc.file_type.toUpperCase()}
+                </div>
+            </div>
+            <button class="action-btn delete-btn" onclick="deleteDocument('${doc.doc_id}')" style="flex-shrink: 0;">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+    `).join('');
 }
 
-function setCategory(category) {
-    selectedCategory = category;
-    document.getElementById('currentFolder').textContent = category || 'All Documents';
-    document.getElementById('uploadCategoryText').textContent = category || 'All Documents';
+// ============ ALL DOCUMENTS ============
+
+async function loadAllDocuments() {
+    const grid = document.getElementById('allDocumentsGrid');
+    grid.innerHTML = '<div class="loading-state"><i class="fas fa-spinner fa-spin"></i><p>Loading...</p></div>';
     
-    document.querySelectorAll('.category-tag').forEach(t => {
-        t.classList.remove('active');
-        if (t.dataset.category === category) t.classList.add('active');
-    });
+    try {
+        const response = await fetch('/admin/documents');
+        const data = await response.json();
+        
+        if (data.documents && data.documents.length > 0) {
+            allDocuments = data.documents;
+            renderAllDocuments(allDocuments);
+        } else {
+            grid.innerHTML = `
+                <div style="text-align: center; padding: 50px; color: var(--text-secondary);">
+                    <i class="fas fa-folder-open" style="font-size: 50px; opacity: 0.5;"></i>
+                    <p>No documents uploaded yet</p>
+                </div>
+            `;
+        }
+    } catch (error) {
+        grid.innerHTML = '<div style="color: #ef4444; text-align: center;">Failed to load</div>';
+    }
+}
+
+function renderAllDocuments(docs) {
+    const grid = document.getElementById('allDocumentsGrid');
+    
+    if (docs.length === 0) {
+        grid.innerHTML = '<div style="text-align: center; padding: 30px; color: var(--text-secondary);">No documents found.</div>';
+        return;
+    }
+    
+    grid.innerHTML = docs.map(doc => `
+        <div class="file-card">
+            <i class="fas ${getFileIcon(doc.file_type)} file-icon" style="color: ${getFolderColor(doc.file_type)};"></i>
+            <div class="file-details">
+                <div class="file-name">${doc.filename}</div>
+                <div class="file-meta">
+                    ${doc.category ? `📁 ${doc.category} • ` : ''}${doc.chunks} chunks • ${formatDate(doc.upload_date)}
+                </div>
+            </div>
+            <button class="action-btn delete-btn" onclick="deleteDocument('${doc.doc_id}')">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+    `).join('');
+}
+
+function filterAllDocuments() {
+    const search = document.getElementById('docSearch').value.toLowerCase();
+    const filtered = allDocuments.filter(doc => 
+        doc.filename.toLowerCase().includes(search) ||
+        (doc.category && doc.category.toLowerCase().includes(search))
+    );
+    renderAllDocuments(filtered);
 }
 
 // ============ UPLOAD ============
@@ -89,18 +358,15 @@ function setupUploadZone() {
     uploadZone.addEventListener('dragover', (e) => {
         e.preventDefault();
         uploadZone.style.borderColor = '#6366f1';
-        uploadZone.style.background = 'rgba(99, 102, 241, 0.08)';
     });
     
     uploadZone.addEventListener('dragleave', () => {
         uploadZone.style.borderColor = '#334155';
-        uploadZone.style.background = '#334155';
     });
     
     uploadZone.addEventListener('drop', (e) => {
         e.preventDefault();
         uploadZone.style.borderColor = '#334155';
-        uploadZone.style.background = '#334155';
         addFiles(Array.from(e.dataTransfer.files));
     });
     
@@ -135,7 +401,7 @@ function renderFileList() {
             <div class="file-info">
                 <i class="fas fa-file-alt"></i>
                 <span>${file.name}</span>
-                <small style="color: var(--text-secondary); flex-shrink: 0;">${formatFileSize(file.size)}</small>
+                <small>${formatFileSize(file.size)}</small>
             </div>
             <button class="remove-file-btn" onclick="removeFile(${index})">
                 <i class="fas fa-times"></i>
@@ -147,9 +413,10 @@ function renderFileList() {
 function updateUploadButton() {
     const uploadBtn = document.getElementById('uploadBtn');
     uploadBtn.disabled = selectedFiles.length === 0;
+    const path = uploadPath.join(' / ') || 'Root';
     uploadBtn.innerHTML = selectedFiles.length === 0 
-        ? '<i class="fas fa-upload"></i> Select Files to Upload'
-        : `<i class="fas fa-upload"></i> Upload ${selectedFiles.length} File(s) to ${selectedCategory || 'All Documents'}`;
+        ? '<i class="fas fa-upload"></i> Select Files'
+        : `<i class="fas fa-upload"></i> Upload ${selectedFiles.length} File(s) to "${path}"`;
 }
 
 async function uploadFiles() {
@@ -157,18 +424,14 @@ async function uploadFiles() {
     
     const uploadBtn = document.getElementById('uploadBtn');
     const progressDiv = document.getElementById('uploadProgress');
+    const category = uploadPath.join('/');
     
     uploadBtn.disabled = true;
     uploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading...';
-    progressDiv.innerHTML = '<div class="loading-state"><i class="fas fa-spinner fa-spin"></i><p>Processing files...</p></div>';
     
     const formData = new FormData();
     selectedFiles.forEach(file => formData.append('files', file));
-    
-    // Add category to form data
-    if (selectedCategory) {
-        formData.append('category', selectedCategory);
-    }
+    if (category) formData.append('category', category);
     
     try {
         const response = await fetch('/admin/upload', {
@@ -181,185 +444,31 @@ async function uploadFiles() {
         if (data.uploaded && data.uploaded.length > 0) {
             progressDiv.innerHTML = `
                 <div style="color: #22c55e; margin-top: 16px; padding: 16px; background: rgba(34,197,94,0.1); border-radius: 12px;">
-                    <h3 style="margin-bottom: 8px;"><i class="fas fa-check-circle"></i> Upload Successful!</h3>
-                    ${data.uploaded.map(file => `
-                        <p style="margin: 4px 0; font-size: 13px;">✅ ${file.name} → ${selectedCategory || 'Root'} (${file.chunks} chunks)</p>
-                    `).join('')}
+                    ✅ Uploaded ${data.uploaded.length} file(s) to "${category || 'Root'}"
                 </div>
             `;
             
             selectedFiles = [];
             renderFileList();
             updateUploadButton();
-            setTimeout(loadStats, 1000);
+            setTimeout(() => {
+                loadFolderStructure();
+                loadStats();
+            }, 1000);
         }
         
         if (data.failed && data.failed.length > 0) {
             progressDiv.innerHTML += `
-                <div style="color: #ef4444; margin-top: 10px; padding: 12px; background: rgba(239,68,68,0.1); border-radius: 10px;">
-                    <h4 style="margin-bottom: 6px;">⚠️ Failed:</h4>
-                    ${data.failed.map(file => `<p style="margin: 3px 0; font-size: 12px;">❌ ${file.name}: ${file.reason}</p>`).join('')}
+                <div style="color: #ef4444; margin-top: 8px; font-size: 12px;">
+                    ⚠️ ${data.failed.length} failed
                 </div>
             `;
         }
     } catch (error) {
-        progressDiv.innerHTML = `<div style="color: #ef4444; padding: 12px;">❌ Upload failed: ${error.message}</div>`;
+        progressDiv.innerHTML = `<div style="color: #ef4444;">❌ Upload failed</div>`;
     } finally {
         uploadBtn.disabled = false;
-        uploadBtn.innerHTML = '<i class="fas fa-upload"></i> Upload to Database';
-    }
-}
-
-// ============ DOCUMENTS ============
-
-async function loadDocuments() {
-    const documentsGrid = document.getElementById('documentsGrid');
-    documentsGrid.innerHTML = '<div class="loading-state"><i class="fas fa-spinner fa-spin"></i><p>Loading...</p></div>';
-    
-    try {
-        const response = await fetch('/admin/documents');
-        const data = await response.json();
-        
-        if (data.documents && data.documents.length > 0) {
-            allDocuments = data.documents;
-            
-            // Update category filter dropdown
-            updateCategoryFilter();
-            
-            // Update quick folders
-            updateQuickFolders();
-            
-            // Display documents
-            renderDocumentList(allDocuments);
-        } else {
-            documentsGrid.innerHTML = `
-                <div style="text-align: center; padding: 50px; color: var(--text-secondary);">
-                    <i class="fas fa-folder-open" style="font-size: 50px; margin-bottom: 15px; opacity: 0.5;"></i>
-                    <p style="font-size: 15px;">No documents uploaded yet</p>
-                    <p style="font-size: 12px; margin-top: 4px;">Go to Upload section to add documents</p>
-                </div>
-            `;
-            document.getElementById('quickFolders').innerHTML = '';
-        }
-    } catch (error) {
-        documentsGrid.innerHTML = '<div style="color: #ef4444; text-align: center; padding: 20px;">Failed to load documents</div>';
-    }
-}
-
-function updateCategoryFilter() {
-    const select = document.getElementById('categoryFilter');
-    const categories = new Set();
-    
-    allDocuments.forEach(doc => {
-        if (doc.category) categories.add(doc.category);
-    });
-    
-    select.innerHTML = '<option value="">All Categories</option>';
-    categories.forEach(cat => {
-        select.innerHTML += `<option value="${cat}">${cat}</option>`;
-    });
-}
-
-function updateQuickFolders() {
-    const quickFolders = document.getElementById('quickFolders');
-    const categoryCount = {};
-    
-    allDocuments.forEach(doc => {
-        const cat = doc.category || 'Uncategorized';
-        categoryCount[cat] = (categoryCount[cat] || 0) + 1;
-    });
-    
-    quickFolders.innerHTML = Object.entries(categoryCount).map(([cat, count]) => `
-        <div class="quick-folder" onclick="filterByCategory('${cat}')">
-            <i class="fas fa-folder${cat === 'Uncategorized' ? '' : '-open'}" style="color: ${getFolderColor(cat)};"></i>
-            <span>${cat}</span>
-            <span class="count">${count}</span>
-        </div>
-    `).join('');
-}
-
-function getFolderColor(category) {
-    const colors = ['#6366f1', '#06b6d4', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
-    let hash = 0;
-    for (let i = 0; i < category.length; i++) {
-        hash = category.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    return colors[Math.abs(hash) % colors.length];
-}
-
-function renderDocumentList(docs) {
-    const documentsGrid = document.getElementById('documentsGrid');
-    
-    if (docs.length === 0) {
-        documentsGrid.innerHTML = '<div style="text-align: center; padding: 30px; color: var(--text-secondary);">No documents match your search.</div>';
-        return;
-    }
-    
-    documentsGrid.innerHTML = docs.map(doc => `
-        <div class="document-card">
-            <div class="doc-info">
-                <div class="doc-icon">
-                    <i class="fas ${getFileIcon(doc.file_type)}" style="color: ${getFolderColor(doc.category || '')};"></i>
-                </div>
-                <div class="doc-details">
-                    <h3>${doc.filename}</h3>
-                    <div class="doc-meta">
-                        <span><i class="fas fa-cubes"></i> ${doc.chunks} chunks</span>
-                        <span><i class="far fa-clock"></i> ${formatDate(doc.upload_date)}</span>
-                        <span><i class="fas fa-tag"></i> ${doc.file_type.toUpperCase()}</span>
-                        ${doc.category ? `<span class="doc-category">📁 ${doc.category}</span>` : ''}
-                    </div>
-                </div>
-            </div>
-            <div class="doc-actions">
-                <button class="action-btn delete-btn" onclick="deleteDocument('${doc.doc_id}')">
-                    <i class="fas fa-trash"></i> Delete
-                </button>
-            </div>
-        </div>
-    `).join('');
-}
-
-function filterDocuments() {
-    const searchTerm = document.getElementById('docSearch').value.toLowerCase();
-    const category = document.getElementById('categoryFilter').value;
-    
-    let filtered = allDocuments;
-    
-    if (searchTerm) {
-        filtered = filtered.filter(doc => 
-            doc.filename.toLowerCase().includes(searchTerm) ||
-            (doc.category && doc.category.toLowerCase().includes(searchTerm))
-        );
-    }
-    
-    if (category) {
-        filtered = filtered.filter(doc => doc.category === category);
-    }
-    
-    renderDocumentList(filtered);
-}
-
-function filterByCategory(category) {
-    document.getElementById('categoryFilter').value = category;
-    filterDocuments();
-}
-
-async function deleteDocument(docId) {
-    if (!confirm('Delete this document permanently? This action cannot be undone.')) return;
-    
-    try {
-        const response = await fetch(`/admin/delete/${docId}`, { method: 'DELETE' });
-        const data = await response.json();
-        
-        if (data.success) {
-            loadDocuments();
-            loadStats();
-        } else {
-            alert('Failed to delete document');
-        }
-    } catch (error) {
-        alert('Error deleting document');
+        updateUploadButton();
     }
 }
 
@@ -373,17 +482,88 @@ async function loadStats() {
         document.getElementById('statDocuments').textContent = data.total_documents || 0;
         document.getElementById('statChunks').textContent = data.total_chunks || 0;
         
-        // Count unique categories
-        const categories = new Set();
-        if (allDocuments.length > 0) {
-            allDocuments.forEach(doc => {
-                if (doc.category) categories.add(doc.category);
+        // Count folders
+        let folderCount = 0;
+        function countFolders(obj) {
+            Object.keys(obj).forEach(key => {
+                folderCount++;
+                if (obj[key].subfolders) countFolders(obj[key].subfolders);
             });
         }
-        document.getElementById('statCategories').textContent = categories.size || 0;
+        countFolders(folderStructure);
+        document.getElementById('statFolders').textContent = folderCount;
         document.getElementById('statStorage').textContent = '~50 MB';
+        
+        // Render folder tree
+        renderFolderTree();
     } catch (error) {
-        console.error('Failed to load stats:', error);
+        console.error('Stats error:', error);
+    }
+}
+
+function renderFolderTree() {
+    const container = document.getElementById('folderTreeView');
+    container.innerHTML = buildTreeHTML(folderStructure, 0);
+    
+    // Add click handlers
+    document.querySelectorAll('.tree-toggle').forEach(toggle => {
+        toggle.addEventListener('click', function() {
+            const children = this.parentElement.querySelector('.tree-children');
+            if (children) {
+                children.style.display = children.style.display === 'none' ? 'block' : 'none';
+                this.classList.toggle('open');
+            }
+        });
+    });
+}
+
+function buildTreeHTML(structure, level) {
+    let html = '';
+    
+    Object.entries(structure).forEach(([name, folder]) => {
+        const hasChildren = Object.keys(folder.subfolders).length > 0;
+        
+        html += `<div class="tree-item" style="padding-left: ${level * 16}px;">`;
+        if (hasChildren) {
+            html += `<span class="tree-toggle open">▶</span>`;
+        } else {
+            html += `<span style="width: 16px; display: inline-block;"></span>`;
+        }
+        html += `<i class="fas fa-folder" style="color: ${getFolderColor(name)};"></i>`;
+        html += `<span>${name}</span>`;
+        html += `<span style="margin-left: auto; font-size: 11px; color: var(--text-secondary);">${folder.files.length} files</span>`;
+        html += `</div>`;
+        
+        if (hasChildren) {
+            html += `<div class="tree-children">`;
+            html += buildTreeHTML(folder.subfolders, level + 1);
+            html += `</div>`;
+        }
+    });
+    
+    return html;
+}
+
+// ============ DELETE ============
+
+async function deleteDocument(docId) {
+    if (!confirm('Delete this document permanently?')) return;
+    
+    try {
+        const response = await fetch(`/admin/delete/${docId}`, { method: 'DELETE' });
+        const data = await response.json();
+        
+        if (data.success) {
+            loadFolderStructure();
+            loadAllDocuments();
+            loadStats();
+            if (document.getElementById('browse-section').classList.contains('active')) {
+                renderBrowseView();
+            }
+            showToast('Document deleted!');
+        }
+    } catch (error) {
+        alert('Failed to delete');
     }
 }
 
@@ -400,7 +580,7 @@ function formatFileSize(bytes) {
 function formatDate(dateString) {
     try {
         return new Date(dateString).toLocaleDateString('en-US', {
-            year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+            year: 'numeric', month: 'short', day: 'numeric'
         });
     } catch {
         return dateString;
@@ -413,4 +593,31 @@ function getFileIcon(fileType) {
         'csv': 'fa-file-csv', 'xlsx': 'fa-file-excel', 'xls': 'fa-file-excel'
     };
     return icons[fileType.toLowerCase()] || 'fa-file';
+}
+
+function getFolderColor(name) {
+    const colors = ['#6366f1', '#06b6d4', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+        hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return colors[Math.abs(hash) % colors.length];
+}
+
+function showToast(message) {
+    const toast = document.createElement('div');
+    toast.style.cssText = `
+        position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+        background: var(--primary); color: white; padding: 12px 24px;
+        border-radius: 25px; font-size: 14px; z-index: 1000;
+        animation: fadeSlide 0.3s ease;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    `;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.3s';
+        setTimeout(() => toast.remove(), 300);
+    }, 2000);
 }

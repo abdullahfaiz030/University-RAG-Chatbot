@@ -820,3 +820,218 @@ body {
         font-size: 11px;
     }
 }
+/* ============ FOLDER BROWSER ============ */
+.breadcrumb-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 20px;
+    font-size: 13px;
+}
+
+.breadcrumb-item {
+    color: var(--primary-light);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+    transition: all 0.2s;
+    font-weight: 500;
+}
+
+.breadcrumb-item:hover {
+    background: rgba(99, 102, 241, 0.15);
+}
+
+.breadcrumb-item.active {
+    color: var(--text);
+    font-weight: 600;
+}
+
+.breadcrumb-item::after {
+    content: ' › ';
+    color: var(--text-secondary);
+    margin-left: 4px;
+}
+
+.breadcrumb-item:last-child::after {
+    content: '';
+}
+
+/* Folder Grid */
+.folder-grid,
+.folder-browser-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.folder-card {
+    padding: 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: all 0.25s;
+    text-align: center;
+    position: relative;
+}
+
+.folder-card:hover {
+    border-color: var(--primary);
+    background: rgba(99, 102, 241, 0.06);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+}
+
+.folder-card i.folder-icon {
+    font-size: 40px;
+    margin-bottom: 10px;
+    display: block;
+}
+
+.folder-card .folder-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 4px;
+    word-break: break-word;
+}
+
+.folder-card .folder-info {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.folder-card .folder-badge {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    padding: 3px 8px;
+    background: var(--primary);
+    color: white;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+/* File Card */
+.file-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    transition: all 0.2s;
+    cursor: default;
+}
+
+.file-card:hover {
+    border-color: var(--primary);
+}
+
+.file-card .file-icon {
+    font-size: 24px;
+    flex-shrink: 0;
+}
+
+.file-card .file-details {
+    flex: 1;
+    min-width: 0;
+}
+
+.file-card .file-name {
+    font-size: 13px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-card .file-meta {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+
+/* Folder Tree View */
+.folder-tree-view {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    font-size: 13px;
+}
+
+.tree-item {
+    padding: 6px 8px;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tree-item:hover {
+    background: var(--surface-light);
+}
+
+.tree-item i {
+    color: var(--primary-light);
+    font-size: 14px;
+}
+
+.tree-children {
+    margin-left: 20px;
+    border-left: 1px solid var(--border);
+    padding-left: 12px;
+}
+
+.tree-toggle {
+    cursor: pointer;
+    transition: transform 0.2s;
+    font-size: 10px;
+    width: 16px;
+    text-align: center;
+}
+
+.tree-toggle.open {
+    transform: rotate(90deg);
+}
+
+/* ============ RESPONSIVE ADDITIONS ============ */
+@media (max-width: 768px) {
+    .folder-grid,
+    .folder-browser-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+    }
+    
+    .folder-card {
+        padding: 14px;
+    }
+    
+    .folder-card i.folder-icon {
+        font-size: 30px;
+    }
+    
+    .breadcrumb-nav {
+        font-size: 11px;
+        padding: 8px 10px;
+    }
+}
+
+@media (max-width: 480px) {
+    .folder-grid,
+    .folder-browser-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
