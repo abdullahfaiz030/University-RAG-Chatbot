@@ -97,6 +97,29 @@ function countFolderItems(structure) {
     return total;
 }
 
+// ============ BREADCRUMB NAVIGATION (FIXED) ============
+
+function navigateToPath(type, depth) {
+    // 'type' is 'upload' or 'browse'
+    // 'depth' is how many levels deep to go (0 = root)
+    
+    if (type === 'upload') {
+        if (depth === 0) {
+            uploadPath = [];
+        } else {
+            uploadPath = uploadPath.slice(0, depth);
+        }
+        renderUploadFolders();
+    } else {
+        if (depth === 0) {
+            browsePath = [];
+        } else {
+            browsePath = browsePath.slice(0, depth);
+        }
+        renderBrowseView();
+    }
+}
+
 // ============ UPLOAD SECTION ============
 
 function renderUploadFolders() {
@@ -122,7 +145,7 @@ function renderUploadFolders() {
         `;
     } else {
         container.innerHTML = folders.map(([name, folder]) => `
-            <div class="folder-card" onclick="navigateUploadPath([...uploadPath, '${name.replace(/'/g, "\\'")}'])">
+            <div class="folder-card" onclick="enterUploadFolder('${name.replace(/'/g, "\\'")}')">
                 <i class="fas fa-folder folder-icon" style="color: ${getFolderColor(name)};"></i>
                 <div class="folder-name">${name}</div>
                 <div class="folder-info">${folder.totalItems || 0} items</div>
@@ -132,8 +155,8 @@ function renderUploadFolders() {
     }
 }
 
-function navigateUploadPath(path) {
-    uploadPath = path;
+function enterUploadFolder(folderName) {
+    uploadPath.push(folderName);
     renderUploadFolders();
 }
 
@@ -141,11 +164,12 @@ function updateUploadBreadcrumb() {
     const breadcrumb = document.getElementById('uploadBreadcrumb');
     if (!breadcrumb) return;
     
-    let html = '<span class="breadcrumb-item" onclick="navigateUploadPath([])">🏠 Root</span>';
+    let html = `<span class="breadcrumb-item" onclick="navigateToPath('upload', 0)">🏠 Root</span>`;
+    
     uploadPath.forEach((part, index) => {
-        const path = uploadPath.slice(0, index + 1);
-        html += ` <span style="color: var(--text-secondary);">›</span> <span class="breadcrumb-item" onclick="navigateUploadPath([${path.map(p => `'${p.replace(/'/g, "\\'")}'`).join(',')}])">📁 ${part}</span>`;
+        html += ` <span style="color: var(--text-secondary);">›</span> <span class="breadcrumb-item" onclick="navigateToPath('upload', ${index + 1})">📁 ${part}</span>`;
     });
+    
     breadcrumb.innerHTML = html;
 }
 
@@ -191,30 +215,23 @@ function renderBrowseView() {
     renderBrowseFiles();
 }
 
-// FIXED: Breadcrumb now properly creates clickable links that go back
 function updateBrowseBreadcrumb() {
     const breadcrumb = document.getElementById('browseBreadcrumb');
     if (!breadcrumb) return;
     
-    let html = '<span class="breadcrumb-item active" onclick="window.navigateBrowsePath([])" style="cursor:pointer;">🏠 Root</span>';
+    let html = `<span class="breadcrumb-item active" onclick="navigateToPath('browse', 0)" style="cursor:pointer;">🏠 Root</span>`;
     
     browsePath.forEach((part, index) => {
-        // Create path array up to this point
-        const pathUpToHere = browsePath.slice(0, index + 1);
-        // Convert to JavaScript array literal for onclick
-        const pathArrayStr = '[' + pathUpToHere.map(p => `'${p.replace(/'/g, "\\'")}'`).join(',') + ']';
-        
-        html += ` <span style="color: var(--text-secondary);">›</span> <span class="breadcrumb-item active" onclick="window.navigateBrowsePath(${pathArrayStr})" style="cursor:pointer;">📁 ${part}</span>`;
+        html += ` <span style="color: var(--text-secondary);">›</span> <span class="breadcrumb-item active" onclick="navigateToPath('browse', ${index + 1})" style="cursor:pointer;">📁 ${part}</span>`;
     });
     
     breadcrumb.innerHTML = html;
 }
 
-// FIXED: Made global so onclick from breadcrumb works
-window.navigateBrowsePath = function(path) {
-    browsePath = path;
+function enterBrowseFolder(folderName) {
+    browsePath.push(folderName);
     renderBrowseView();
-};
+}
 
 function renderBrowseFolders() {
     const container = document.getElementById('browseFolders');
@@ -250,7 +267,7 @@ function renderBrowseFolders() {
                 </div>
                 <span class="folder-badge">${folder.totalItems || 0}</span>
                 <div style="display: flex; gap: 6px; margin-top: 8px;">
-                    <button class="action-btn" onclick="event.stopPropagation(); window.navigateBrowsePath([...browsePath, '${name.replace(/'/g, "\\'")}'])" style="flex: 1;">
+                    <button class="action-btn" onclick="event.stopPropagation(); enterBrowseFolder('${name.replace(/'/g, "\\'")}')" style="flex: 1;">
                         <i class="fas fa-arrow-right"></i> Open
                     </button>
                     <button class="action-btn" onclick="event.stopPropagation(); renameFolder('${name.replace(/'/g, "\\'")}')" title="Rename">
