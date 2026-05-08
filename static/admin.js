@@ -54,7 +54,6 @@ function buildFolderStructure() {
         const parts = path.split('/').filter(p => p.trim() !== '');
         
         if (parts.length === 0) {
-            // Root level document
             if (!folderStructure['_root_files']) {
                 folderStructure['_root_files'] = [];
             }
@@ -145,7 +144,7 @@ function updateUploadBreadcrumb() {
     let html = '<span class="breadcrumb-item" onclick="navigateUploadPath([])">🏠 Root</span>';
     uploadPath.forEach((part, index) => {
         const path = uploadPath.slice(0, index + 1);
-        html += ` <span style="color: var(--text-secondary);">›</span> <span class="breadcrumb-item" onclick="navigateUploadPath(${JSON.stringify(path)})">📁 ${part}</span>`;
+        html += ` <span style="color: var(--text-secondary);">›</span> <span class="breadcrumb-item" onclick="navigateUploadPath([${path.map(p => `'${p.replace(/'/g, "\\'")}'`).join(',')}])">📁 ${part}</span>`;
     });
     breadcrumb.innerHTML = html;
 }
@@ -192,29 +191,35 @@ function renderBrowseView() {
     renderBrowseFiles();
 }
 
+// FIXED: Breadcrumb now properly creates clickable links that go back
 function updateBrowseBreadcrumb() {
     const breadcrumb = document.getElementById('browseBreadcrumb');
     if (!breadcrumb) return;
     
-    let html = '<span class="breadcrumb-item active" onclick="navigateBrowsePath([])">🏠 Root</span>';
+    let html = '<span class="breadcrumb-item active" onclick="window.navigateBrowsePath([])" style="cursor:pointer;">🏠 Root</span>';
+    
     browsePath.forEach((part, index) => {
-        const path = browsePath.slice(0, index + 1);
-        html += ` <span style="color: var(--text-secondary);">›</span> <span class="breadcrumb-item active" onclick="navigateBrowsePath(${JSON.stringify(path)})">📁 ${part}</span>`;
+        // Create path array up to this point
+        const pathUpToHere = browsePath.slice(0, index + 1);
+        // Convert to JavaScript array literal for onclick
+        const pathArrayStr = '[' + pathUpToHere.map(p => `'${p.replace(/'/g, "\\'")}'`).join(',') + ']';
+        
+        html += ` <span style="color: var(--text-secondary);">›</span> <span class="breadcrumb-item active" onclick="window.navigateBrowsePath(${pathArrayStr})" style="cursor:pointer;">📁 ${part}</span>`;
     });
+    
     breadcrumb.innerHTML = html;
 }
 
-function navigateBrowsePath(path) {
+// FIXED: Made global so onclick from breadcrumb works
+window.navigateBrowsePath = function(path) {
     browsePath = path;
     renderBrowseView();
-}
+};
 
-// FIXED: Now properly navigates into subfolders
 function renderBrowseFolders() {
     const container = document.getElementById('browseFolders');
     if (!container) return;
     
-    // Navigate to current path
     let current = folderStructure;
     for (let i = 0; i < browsePath.length; i++) {
         const part = browsePath[i];
@@ -245,7 +250,7 @@ function renderBrowseFolders() {
                 </div>
                 <span class="folder-badge">${folder.totalItems || 0}</span>
                 <div style="display: flex; gap: 6px; margin-top: 8px;">
-                    <button class="action-btn" onclick="event.stopPropagation(); navigateBrowsePath([...browsePath, '${name.replace(/'/g, "\\'")}'])" style="flex: 1;">
+                    <button class="action-btn" onclick="event.stopPropagation(); window.navigateBrowsePath([...browsePath, '${name.replace(/'/g, "\\'")}'])" style="flex: 1;">
                         <i class="fas fa-arrow-right"></i> Open
                     </button>
                     <button class="action-btn" onclick="event.stopPropagation(); renameFolder('${name.replace(/'/g, "\\'")}')" title="Rename">
@@ -260,7 +265,6 @@ function renderBrowseFolders() {
     }
 }
 
-// FIXED: Now properly shows files in current folder
 function renderBrowseFiles() {
     const container = document.getElementById('browseFiles');
     if (!container) return;
@@ -268,17 +272,14 @@ function renderBrowseFiles() {
     let files = [];
     
     if (browsePath.length === 0) {
-        // Root level - collect files from _root_files
         if (folderStructure['_root_files']) {
             files = folderStructure['_root_files'];
         }
     } else {
-        // Navigate to current folder
         let current = folderStructure;
         for (let i = 0; i < browsePath.length; i++) {
             const part = browsePath[i];
             if (current[part]) {
-                // If this is the last part, get files from this folder
                 if (i === browsePath.length - 1) {
                     files = current[part].files || [];
                 } else {
@@ -338,7 +339,6 @@ function renameFolder(oldName) {
         current[newName] = current[oldName];
         current[newName].name = newName;
         delete current[oldName];
-        
         updateDocumentCategories(current[newName], [...browsePath, newName]);
     }
     
@@ -349,11 +349,7 @@ function renameFolder(oldName) {
 
 function updateDocumentCategories(folder, pathArray) {
     const newCategory = pathArray.join('/');
-    
-    (folder.files || []).forEach(doc => {
-        doc.category = newCategory;
-    });
-    
+    (folder.files || []).forEach(doc => { doc.category = newCategory; });
     Object.entries(folder.subfolders || {}).forEach(([name, subfolder]) => {
         updateDocumentCategories(subfolder, [...pathArray, name]);
     });
@@ -364,12 +360,9 @@ function renameDocument(docId, oldFilename) {
     if (!newFilename || newFilename === oldFilename) return;
     
     const doc = allDocuments.find(d => d.doc_id === docId);
-    if (doc) {
-        doc.filename = newFilename;
-    }
+    if (doc) { doc.filename = newFilename; }
     
     updateFilenameInStructure(folderStructure, docId, newFilename);
-    
     renderBrowseView();
     loadAllDocuments();
     showToast(`File renamed to "${newFilename}"!`);
@@ -378,17 +371,11 @@ function renameDocument(docId, oldFilename) {
 function updateFilenameInStructure(structure, docId, newFilename) {
     Object.entries(structure).forEach(([key, value]) => {
         if (key === '_root_files' && Array.isArray(value)) {
-            value.forEach(doc => {
-                if (doc.doc_id === docId) doc.filename = newFilename;
-            });
+            value.forEach(doc => { if (doc.doc_id === docId) doc.filename = newFilename; });
         } else if (value.files) {
-            value.files.forEach(doc => {
-                if (doc.doc_id === docId) doc.filename = newFilename;
-            });
+            value.files.forEach(doc => { if (doc.doc_id === docId) doc.filename = newFilename; });
         }
-        if (value.subfolders) {
-            updateFilenameInStructure(value.subfolders, docId, newFilename);
-        }
+        if (value.subfolders) { updateFilenameInStructure(value.subfolders, docId, newFilename); }
     });
 }
 
@@ -414,20 +401,12 @@ function deleteFolder(folderName) {
 }
 
 function deleteDocumentsInFolder(folder) {
-    (folder.files || []).forEach(doc => {
-        deleteDocumentSilent(doc.doc_id);
-    });
-    Object.values(folder.subfolders || {}).forEach(subfolder => {
-        deleteDocumentsInFolder(subfolder);
-    });
+    (folder.files || []).forEach(doc => { deleteDocumentSilent(doc.doc_id); });
+    Object.values(folder.subfolders || {}).forEach(subfolder => { deleteDocumentsInFolder(subfolder); });
 }
 
 async function deleteDocumentSilent(docId) {
-    try {
-        await fetch(`/admin/delete/${docId}`, { method: 'DELETE' });
-    } catch (e) {
-        console.error('Delete failed:', e);
-    }
+    try { await fetch(`/admin/delete/${docId}`, { method: 'DELETE' }); } catch (e) {}
 }
 
 // ============ ALL DOCUMENTS ============
@@ -446,12 +425,7 @@ async function loadAllDocuments() {
             allDocuments = data.documents;
             renderAllDocuments(allDocuments);
         } else {
-            grid.innerHTML = `
-                <div style="text-align: center; padding: 50px; color: var(--text-secondary);">
-                    <i class="fas fa-folder-open" style="font-size: 50px; opacity: 0.5;"></i>
-                    <p>No documents uploaded yet</p>
-                </div>
-            `;
+            grid.innerHTML = `<div style="text-align: center; padding: 50px; color: var(--text-secondary);"><i class="fas fa-folder-open" style="font-size: 50px; opacity: 0.5;"></i><p>No documents uploaded yet</p></div>`;
         }
     } catch (error) {
         grid.innerHTML = '<div style="color: #ef4444; text-align: center;">Failed to load</div>';
@@ -472,26 +446,17 @@ function renderAllDocuments(docs) {
             <i class="fas ${getFileIcon(doc.file_type)} file-icon" style="color: ${getFolderColor(doc.file_type || '')};"></i>
             <div class="file-details">
                 <div class="file-name">${doc.filename}</div>
-                <div class="file-meta">
-                    ${doc.category ? `📁 ${doc.category} • ` : ''}${doc.file_type ? doc.file_type.toUpperCase() : ''} • ${formatDate(doc.upload_date)}
-                </div>
+                <div class="file-meta">${doc.category ? `📁 ${doc.category} • ` : ''}${doc.file_type ? doc.file_type.toUpperCase() : ''} • ${formatDate(doc.upload_date)}</div>
             </div>
-            <button class="action-btn" onclick="renameDocument('${doc.doc_id}', '${(doc.filename || '').replace(/'/g, "\\'")}')" title="Rename">
-                <i class="fas fa-edit"></i>
-            </button>
-            <button class="action-btn delete-btn" onclick="deleteDocument('${doc.doc_id}')">
-                <i class="fas fa-trash"></i>
-            </button>
+            <button class="action-btn" onclick="renameDocument('${doc.doc_id}', '${(doc.filename || '').replace(/'/g, "\\'")}')" title="Rename"><i class="fas fa-edit"></i></button>
+            <button class="action-btn delete-btn" onclick="deleteDocument('${doc.doc_id}')"><i class="fas fa-trash"></i></button>
         </div>
     `).join('');
 }
 
 function filterAllDocuments() {
     const search = document.getElementById('docSearch')?.value?.toLowerCase() || '';
-    const filtered = allDocuments.filter(doc => 
-        (doc.filename || '').toLowerCase().includes(search) ||
-        (doc.category || '').toLowerCase().includes(search)
-    );
+    const filtered = allDocuments.filter(doc => (doc.filename || '').toLowerCase().includes(search) || (doc.category || '').toLowerCase().includes(search));
     renderAllDocuments(filtered);
 }
 
@@ -503,59 +468,23 @@ function setupUploadZone() {
     if (!uploadZone || !fileInput) return;
     
     uploadZone.addEventListener('click', () => fileInput.click());
-    
-    uploadZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        uploadZone.style.borderColor = '#6366f1';
-    });
-    
-    uploadZone.addEventListener('dragleave', () => {
-        uploadZone.style.borderColor = '#334155';
-    });
-    
-    uploadZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        uploadZone.style.borderColor = '#334155';
-        addFiles(Array.from(e.dataTransfer.files));
-    });
-    
-    fileInput.addEventListener('change', () => {
-        addFiles(Array.from(fileInput.files));
-        fileInput.value = '';
-    });
+    uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.style.borderColor = '#6366f1'; });
+    uploadZone.addEventListener('dragleave', () => { uploadZone.style.borderColor = '#334155'; });
+    uploadZone.addEventListener('drop', (e) => { e.preventDefault(); uploadZone.style.borderColor = '#334155'; addFiles(Array.from(e.dataTransfer.files)); });
+    fileInput.addEventListener('change', () => { addFiles(Array.from(fileInput.files)); fileInput.value = ''; });
 }
 
-function addFiles(files) {
-    selectedFiles = [...selectedFiles, ...files];
-    renderFileList();
-    updateUploadButton();
-}
-
-function removeFile(index) {
-    selectedFiles.splice(index, 1);
-    renderFileList();
-    updateUploadButton();
-}
+function addFiles(files) { selectedFiles = [...selectedFiles, ...files]; renderFileList(); updateUploadButton(); }
+function removeFile(index) { selectedFiles.splice(index, 1); renderFileList(); updateUploadButton(); }
 
 function renderFileList() {
     const uploadList = document.getElementById('uploadList');
     if (!uploadList) return;
-    
-    if (selectedFiles.length === 0) {
-        uploadList.innerHTML = '';
-        return;
-    }
-    
+    if (selectedFiles.length === 0) { uploadList.innerHTML = ''; return; }
     uploadList.innerHTML = selectedFiles.map((file, index) => `
         <div class="file-item">
-            <div class="file-info">
-                <i class="fas fa-file-alt"></i>
-                <span>${file.name}</span>
-                <small>${formatFileSize(file.size)}</small>
-            </div>
-            <button class="remove-file-btn" onclick="removeFile(${index})">
-                <i class="fas fa-times"></i>
-            </button>
+            <div class="file-info"><i class="fas fa-file-alt"></i><span>${file.name}</span><small>${formatFileSize(file.size)}</small></div>
+            <button class="remove-file-btn" onclick="removeFile(${index})"><i class="fas fa-times"></i></button>
         </div>
     `).join('');
 }
@@ -563,21 +492,16 @@ function renderFileList() {
 function updateUploadButton() {
     const uploadBtn = document.getElementById('uploadBtn');
     if (!uploadBtn) return;
-    
     uploadBtn.disabled = selectedFiles.length === 0;
     const path = uploadPath.join(' / ') || 'Root';
-    uploadBtn.innerHTML = selectedFiles.length === 0 
-        ? '<i class="fas fa-upload"></i> Select Files'
-        : `<i class="fas fa-upload"></i> Upload ${selectedFiles.length} File(s) to "${path}"`;
+    uploadBtn.innerHTML = selectedFiles.length === 0 ? '<i class="fas fa-upload"></i> Select Files' : `<i class="fas fa-upload"></i> Upload ${selectedFiles.length} File(s) to "${path}"`;
 }
 
 async function uploadFiles() {
     if (selectedFiles.length === 0) return;
-    
     const uploadBtn = document.getElementById('uploadBtn');
     const progressDiv = document.getElementById('uploadProgress');
     const category = uploadPath.join('/');
-    
     if (!uploadBtn) return;
     
     uploadBtn.disabled = true;
@@ -588,42 +512,21 @@ async function uploadFiles() {
     if (category) formData.append('category', category);
     
     try {
-        const response = await fetch('/admin/upload', {
-            method: 'POST',
-            body: formData
-        });
-        
+        const response = await fetch('/admin/upload', { method: 'POST', body: formData });
         const data = await response.json();
         
         if (data.uploaded && data.uploaded.length > 0) {
-            if (progressDiv) {
-                progressDiv.innerHTML = `
-                    <div style="color: #22c55e; margin-top: 16px; padding: 16px; background: rgba(34,197,94,0.1); border-radius: 12px;">
-                        ✅ Uploaded ${data.uploaded.length} file(s) to "${category || 'Root'}"
-                    </div>
-                `;
-            }
-            
+            if (progressDiv) progressDiv.innerHTML = `<div style="color: #22c55e; margin-top: 16px; padding: 16px; background: rgba(34,197,94,0.1); border-radius: 12px;">✅ Uploaded ${data.uploaded.length} file(s) to "${category || 'Root'}"</div>`;
             selectedFiles = [];
             renderFileList();
             updateUploadButton();
-            setTimeout(() => {
-                loadFolderStructure();
-                loadStats();
-            }, 1000);
+            setTimeout(() => { loadFolderStructure(); loadStats(); }, 1000);
         }
-        
         if (data.failed && data.failed.length > 0 && progressDiv) {
-            progressDiv.innerHTML += `
-                <div style="color: #ef4444; margin-top: 8px; font-size: 12px;">
-                    ⚠️ ${data.failed.length} failed
-                </div>
-            `;
+            progressDiv.innerHTML += `<div style="color: #ef4444; margin-top: 8px; font-size: 12px;">⚠️ ${data.failed.length} failed</div>`;
         }
     } catch (error) {
-        if (progressDiv) {
-            progressDiv.innerHTML = `<div style="color: #ef4444;">❌ Upload failed</div>`;
-        }
+        if (progressDiv) progressDiv.innerHTML = `<div style="color: #ef4444;">❌ Upload failed</div>`;
     } finally {
         uploadBtn.disabled = false;
         updateUploadButton();
@@ -637,76 +540,46 @@ async function loadStats() {
         const response = await fetch('/admin/stats');
         const data = await response.json();
         
-        const statDocs = document.getElementById('statDocuments');
-        const statChunks = document.getElementById('statChunks');
-        const statFolders = document.getElementById('statFolders');
-        const statStorage = document.getElementById('statStorage');
-        
-        if (statDocs) statDocs.textContent = data.total_documents || 0;
-        if (statChunks) statChunks.textContent = data.total_chunks || 0;
+        if (document.getElementById('statDocuments')) document.getElementById('statDocuments').textContent = data.total_documents || 0;
+        if (document.getElementById('statChunks')) document.getElementById('statChunks').textContent = data.total_chunks || 0;
         
         let folderCount = 0;
         function countFolders(obj) {
             Object.keys(obj).forEach(key => {
-                if (key !== '_root_files') {
-                    folderCount++;
-                    if (obj[key].subfolders) countFolders(obj[key].subfolders);
-                }
+                if (key !== '_root_files') { folderCount++; if (obj[key].subfolders) countFolders(obj[key].subfolders); }
             });
         }
         countFolders(folderStructure);
-        if (statFolders) statFolders.textContent = folderCount;
-        if (statStorage) statStorage.textContent = '~50 MB';
+        if (document.getElementById('statFolders')) document.getElementById('statFolders').textContent = folderCount;
+        if (document.getElementById('statStorage')) document.getElementById('statStorage').textContent = '~50 MB';
         
         renderFolderTree();
-    } catch (error) {
-        console.error('Stats error:', error);
-    }
+    } catch (error) { console.error('Stats error:', error); }
 }
 
 function renderFolderTree() {
     const container = document.getElementById('folderTreeView');
     if (!container) return;
-    
     container.innerHTML = buildTreeHTML(folderStructure, 0);
-    
     document.querySelectorAll('.tree-toggle').forEach(toggle => {
         toggle.addEventListener('click', function() {
             const children = this.parentElement.querySelector('.tree-children');
-            if (children) {
-                children.style.display = children.style.display === 'none' ? 'block' : 'none';
-                this.classList.toggle('open');
-            }
+            if (children) { children.style.display = children.style.display === 'none' ? 'block' : 'none'; this.classList.toggle('open'); }
         });
     });
 }
 
 function buildTreeHTML(structure, level) {
     let html = '';
-    
     Object.entries(structure).forEach(([name, folder]) => {
         if (name === '_root_files') return;
-        
         const hasChildren = Object.keys(folder.subfolders || {}).length > 0;
-        
         html += `<div class="tree-item" style="padding-left: ${level * 16}px;">`;
-        if (hasChildren) {
-            html += `<span class="tree-toggle open">▶</span>`;
-        } else {
-            html += `<span style="width: 16px; display: inline-block;"></span>`;
-        }
-        html += `<i class="fas fa-folder" style="color: ${getFolderColor(name)};"></i>`;
-        html += `<span>${name}</span>`;
-        html += `<span style="margin-left: auto; font-size: 11px; color: var(--text-secondary);">${(folder.files || []).length} files</span>`;
-        html += `</div>`;
-        
-        if (hasChildren) {
-            html += `<div class="tree-children">`;
-            html += buildTreeHTML(folder.subfolders, level + 1);
-            html += `</div>`;
-        }
+        html += hasChildren ? `<span class="tree-toggle open">▶</span>` : `<span style="width: 16px; display: inline-block;"></span>`;
+        html += `<i class="fas fa-folder" style="color: ${getFolderColor(name)};"></i><span>${name}</span>`;
+        html += `<span style="margin-left: auto; font-size: 11px; color: var(--text-secondary);">${(folder.files || []).length} files</span></div>`;
+        if (hasChildren) { html += `<div class="tree-children">${buildTreeHTML(folder.subfolders, level + 1)}</div>`; }
     });
-    
     return html;
 }
 
@@ -714,80 +587,49 @@ function buildTreeHTML(structure, level) {
 
 async function deleteDocument(docId) {
     if (!confirm('Delete this document permanently?')) return;
-    
     try {
         const response = await fetch(`/admin/delete/${docId}`, { method: 'DELETE' });
         const data = await response.json();
-        
         if (data.success) {
-            loadFolderStructure();
-            loadAllDocuments();
-            loadStats();
-            if (document.getElementById('browse-section')?.classList.contains('active')) {
-                renderBrowseView();
-            }
+            loadFolderStructure(); loadAllDocuments(); loadStats();
+            if (document.getElementById('browse-section')?.classList.contains('active')) renderBrowseView();
             showToast('Document deleted!');
         }
-    } catch (error) {
-        alert('Failed to delete');
-    }
+    } catch (error) { alert('Failed to delete'); }
 }
 
 // ============ UTILITIES ============
 
-function sanitizeId(str) {
-    return str.replace(/[^a-zA-Z0-9]/g, '_');
-}
+function sanitizeId(str) { return str.replace(/[^a-zA-Z0-9]/g, '_'); }
 
 function formatFileSize(bytes) {
     if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const k = 1024; const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
 function formatDate(dateString) {
-    try {
-        return new Date(dateString).toLocaleDateString('en-US', {
-            year: 'numeric', month: 'short', day: 'numeric'
-        });
-    } catch {
-        return dateString;
-    }
+    try { return new Date(dateString).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); }
+    catch { return dateString; }
 }
 
 function getFileIcon(fileType) {
-    const icons = {
-        'pdf': 'fa-file-pdf', 'docx': 'fa-file-word', 'txt': 'fa-file-alt',
-        'csv': 'fa-file-csv', 'xlsx': 'fa-file-excel', 'xls': 'fa-file-excel'
-    };
+    const icons = { 'pdf': 'fa-file-pdf', 'docx': 'fa-file-word', 'txt': 'fa-file-alt', 'csv': 'fa-file-csv', 'xlsx': 'fa-file-excel', 'xls': 'fa-file-excel' };
     return icons[(fileType || '').toLowerCase()] || 'fa-file';
 }
 
 function getFolderColor(name) {
     const colors = ['#6366f1', '#06b6d4', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
     let hash = 0;
-    for (let i = 0; i < name.length; i++) {
-        hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    }
+    for (let i = 0; i < name.length; i++) { hash = name.charCodeAt(i) + ((hash << 5) - hash); }
     return colors[Math.abs(hash) % colors.length];
 }
 
 function showToast(message) {
     const toast = document.createElement('div');
-    toast.style.cssText = `
-        position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-        background: var(--primary); color: white; padding: 12px 24px;
-        border-radius: 25px; font-size: 14px; z-index: 1000;
-        animation: fadeSlide 0.3s ease;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-    `;
+    toast.style.cssText = `position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--primary); color: white; padding: 12px 24px; border-radius: 25px; font-size: 14px; z-index: 1000; animation: fadeSlide 0.3s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.3);`;
     toast.textContent = message;
     document.body.appendChild(toast);
-    setTimeout(() => {
-        toast.style.opacity = '0';
-        toast.style.transition = 'opacity 0.3s';
-        setTimeout(() => toast.remove(), 300);
-    }, 2000);
+    setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; setTimeout(() => toast.remove(), 300); }, 2000);
 }
