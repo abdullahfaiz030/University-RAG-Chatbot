@@ -50,16 +50,16 @@ function buildFolderStructure() {
     folderStructure = {};
     
     allDocuments.forEach(doc => {
-        const path = doc.category || 'Uncategorized';
-        const parts = path.split('/').filter(p => p.trim() !== '');
-        
-        if (parts.length === 0) {
+        const path = doc.category || '';
+        if (!path || path.trim() === '') {
             if (!folderStructure['_root_files']) {
                 folderStructure['_root_files'] = [];
             }
             folderStructure['_root_files'].push(doc);
             return;
         }
+        
+        const parts = path.split('/').filter(p => p.trim() !== '');
         
         let current = folderStructure;
         parts.forEach((part, index) => {
@@ -97,25 +97,24 @@ function countFolderItems(structure) {
     return total;
 }
 
-// ============ BREADCRUMB NAVIGATION (FIXED) ============
+// ============ NAVIGATION ============
 
-function navigateToPath(type, depth) {
-    // 'type' is 'upload' or 'browse'
-    // 'depth' is how many levels deep to go (0 = root)
-    
+function goToPath(type, depth) {
     if (type === 'upload') {
-        if (depth === 0) {
-            uploadPath = [];
-        } else {
-            uploadPath = uploadPath.slice(0, depth);
-        }
+        uploadPath = (depth === 0) ? [] : uploadPath.slice(0, depth);
         renderUploadFolders();
-    } else {
-        if (depth === 0) {
-            browsePath = [];
-        } else {
-            browsePath = browsePath.slice(0, depth);
-        }
+    } else if (type === 'browse') {
+        browsePath = (depth === 0) ? [] : browsePath.slice(0, depth);
+        renderBrowseView();
+    }
+}
+
+function enterFolder(type, folderName) {
+    if (type === 'upload') {
+        uploadPath.push(folderName);
+        renderUploadFolders();
+    } else if (type === 'browse') {
+        browsePath.push(folderName);
         renderBrowseView();
     }
 }
@@ -131,7 +130,7 @@ function renderUploadFolders() {
         if (current[part]) current = current[part].subfolders;
     });
     
-    updateUploadBreadcrumb();
+    updateBreadcrumb('upload');
     
     const folders = Object.entries(current).filter(([key]) => key !== '_root_files');
     
@@ -145,7 +144,7 @@ function renderUploadFolders() {
         `;
     } else {
         container.innerHTML = folders.map(([name, folder]) => `
-            <div class="folder-card" onclick="enterUploadFolder('${name.replace(/'/g, "\\'")}')">
+            <div class="folder-card" onclick="enterFolder('upload', '${name.replace(/'/g, "\\'")}')">
                 <i class="fas fa-folder folder-icon" style="color: ${getFolderColor(name)};"></i>
                 <div class="folder-name">${name}</div>
                 <div class="folder-info">${folder.totalItems || 0} items</div>
@@ -155,82 +154,12 @@ function renderUploadFolders() {
     }
 }
 
-function enterUploadFolder(folderName) {
-    uploadPath.push(folderName);
-    renderUploadFolders();
-}
-
-function updateUploadBreadcrumb() {
-    const breadcrumb = document.getElementById('uploadBreadcrumb');
-    if (!breadcrumb) return;
-    
-    let html = `<span class="breadcrumb-item" onclick="navigateToPath('upload', 0)">🏠 Root</span>`;
-    
-    uploadPath.forEach((part, index) => {
-        html += ` <span style="color: var(--text-secondary);">›</span> <span class="breadcrumb-item" onclick="navigateToPath('upload', ${index + 1})">📁 ${part}</span>`;
-    });
-    
-    breadcrumb.innerHTML = html;
-}
-
-function createNewFolder(type) {
-    const input = document.getElementById('newFolderName');
-    const name = input.value.trim();
-    if (!name) return;
-    
-    const path = type === 'upload' ? uploadPath : browsePath;
-    
-    let current = folderStructure;
-    path.forEach(part => {
-        if (!current[part]) {
-            current[part] = { name: part, files: [], subfolders: {}, count: 0, totalItems: 0 };
-        }
-        current = current[part].subfolders;
-    });
-    
-    if (!current[name]) {
-        current[name] = { name: name, files: [], subfolders: {}, count: 0, totalItems: 0 };
-    }
-    
-    input.value = '';
-    
-    if (type === 'upload') {
-        renderUploadFolders();
-    } else {
-        renderBrowseView();
-    }
-    
-    showToast(`Folder "${name}" created!`);
-}
-
-function getCurrentUploadPath() {
-    return uploadPath.join('/');
-}
-
 // ============ BROWSE SECTION ============
 
 function renderBrowseView() {
-    updateBrowseBreadcrumb();
+    updateBreadcrumb('browse');
     renderBrowseFolders();
     renderBrowseFiles();
-}
-
-function updateBrowseBreadcrumb() {
-    const breadcrumb = document.getElementById('browseBreadcrumb');
-    if (!breadcrumb) return;
-    
-    let html = `<span class="breadcrumb-item active" onclick="navigateToPath('browse', 0)" style="cursor:pointer;">🏠 Root</span>`;
-    
-    browsePath.forEach((part, index) => {
-        html += ` <span style="color: var(--text-secondary);">›</span> <span class="breadcrumb-item active" onclick="navigateToPath('browse', ${index + 1})" style="cursor:pointer;">📁 ${part}</span>`;
-    });
-    
-    breadcrumb.innerHTML = html;
-}
-
-function enterBrowseFolder(folderName) {
-    browsePath.push(folderName);
-    renderBrowseView();
 }
 
 function renderBrowseFolders() {
@@ -267,7 +196,7 @@ function renderBrowseFolders() {
                 </div>
                 <span class="folder-badge">${folder.totalItems || 0}</span>
                 <div style="display: flex; gap: 6px; margin-top: 8px;">
-                    <button class="action-btn" onclick="event.stopPropagation(); enterBrowseFolder('${name.replace(/'/g, "\\'")}')" style="flex: 1;">
+                    <button class="action-btn" onclick="event.stopPropagation(); enterFolder('browse', '${name.replace(/'/g, "\\'")}')" style="flex: 1;">
                         <i class="fas fa-arrow-right"></i> Open
                     </button>
                     <button class="action-btn" onclick="event.stopPropagation(); renameFolder('${name.replace(/'/g, "\\'")}')" title="Rename">
@@ -338,7 +267,57 @@ function renderBrowseFiles() {
     `).join('');
 }
 
-// ============ RENAME FUNCTIONS ============
+// ============ BREADCRUMB (Single function for both) ============
+
+function updateBreadcrumb(type) {
+    const path = (type === 'upload') ? uploadPath : browsePath;
+    const breadcrumbId = (type === 'upload') ? 'uploadBreadcrumb' : 'browseBreadcrumb';
+    const breadcrumb = document.getElementById(breadcrumbId);
+    if (!breadcrumb) return;
+    
+    let html = `<span style="color: var(--primary-light); cursor: pointer; font-weight: 500;" onclick="goToPath('${type}', 0)">🏠 Root</span>`;
+    
+    path.forEach((part, index) => {
+        html += ` <span style="color: var(--text-secondary);">›</span> `;
+        html += `<span style="color: var(--primary-light); cursor: pointer; font-weight: 500;" onclick="goToPath('${type}', ${index + 1})">📁 ${part}</span>`;
+    });
+    
+    breadcrumb.innerHTML = html;
+}
+
+// ============ CREATE FOLDER ============
+
+function createNewFolder(type) {
+    const input = document.getElementById('newFolderName');
+    const name = input.value.trim();
+    if (!name) return;
+    
+    const path = type === 'upload' ? uploadPath : browsePath;
+    
+    let current = folderStructure;
+    path.forEach(part => {
+        if (!current[part]) {
+            current[part] = { name: part, files: [], subfolders: {}, count: 0, totalItems: 0 };
+        }
+        current = current[part].subfolders;
+    });
+    
+    if (!current[name]) {
+        current[name] = { name: name, files: [], subfolders: {}, count: 0, totalItems: 0 };
+    }
+    
+    input.value = '';
+    
+    if (type === 'upload') {
+        renderUploadFolders();
+    } else {
+        renderBrowseView();
+    }
+    
+    showToast(`Folder "${name}" created!`);
+}
+
+// ============ RENAME ============
 
 function renameFolder(oldName) {
     const newName = prompt('Enter new folder name:', oldName);
@@ -396,6 +375,8 @@ function updateFilenameInStructure(structure, docId, newFilename) {
     });
 }
 
+// ============ DELETE ============
+
 function deleteFolder(folderName) {
     if (!confirm(`Delete folder "${folderName}" and all its contents? This cannot be undone!`)) return;
     
@@ -412,6 +393,11 @@ function deleteFolder(folderName) {
         delete current[folderName];
     }
     
+    // If we deleted the current folder, go back
+    if (browsePath.length > 0 && browsePath[browsePath.length - 1] === folderName) {
+        browsePath.pop();
+    }
+    
     renderBrowseView();
     loadStats();
     showToast(`Folder "${folderName}" deleted!`);
@@ -424,6 +410,19 @@ function deleteDocumentsInFolder(folder) {
 
 async function deleteDocumentSilent(docId) {
     try { await fetch(`/admin/delete/${docId}`, { method: 'DELETE' }); } catch (e) {}
+}
+
+async function deleteDocument(docId) {
+    if (!confirm('Delete this document permanently?')) return;
+    try {
+        const response = await fetch(`/admin/delete/${docId}`, { method: 'DELETE' });
+        const data = await response.json();
+        if (data.success) {
+            loadFolderStructure(); loadAllDocuments(); loadStats();
+            if (document.getElementById('browse-section')?.classList.contains('active')) renderBrowseView();
+            showToast('Document deleted!');
+        }
+    } catch (error) { alert('Failed to delete'); }
 }
 
 // ============ ALL DOCUMENTS ============
@@ -600,24 +599,7 @@ function buildTreeHTML(structure, level) {
     return html;
 }
 
-// ============ DELETE ============
-
-async function deleteDocument(docId) {
-    if (!confirm('Delete this document permanently?')) return;
-    try {
-        const response = await fetch(`/admin/delete/${docId}`, { method: 'DELETE' });
-        const data = await response.json();
-        if (data.success) {
-            loadFolderStructure(); loadAllDocuments(); loadStats();
-            if (document.getElementById('browse-section')?.classList.contains('active')) renderBrowseView();
-            showToast('Document deleted!');
-        }
-    } catch (error) { alert('Failed to delete'); }
-}
-
 // ============ UTILITIES ============
-
-function sanitizeId(str) { return str.replace(/[^a-zA-Z0-9]/g, '_'); }
 
 function formatFileSize(bytes) {
     if (bytes === 0) return '0 Bytes';
