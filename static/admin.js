@@ -131,23 +131,6 @@ function renderUploadFolders() {
             </div>
         `).join('');
     }
-    
-    // Show files in current folder
-    let currentFolder = folderStructure;
-    uploadPath.forEach(part => {
-        if (currentFolder[part]) currentFolder = currentFolder[part];
-    });
-    
-    const files = (currentFolder.files || currentFolder._root_files || []);
-    if (files.length > 0) {
-        container.innerHTML += `
-            <div style="grid-column: 1/-1; margin-top: 8px; padding-top: 16px; border-top: 1px solid var(--border);">
-                <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
-                    <i class="fas fa-file-alt"></i> ${files.length} file(s) in this folder
-                </p>
-            </div>
-        `;
-    }
 }
 
 function navigateUploadPath(path) {
@@ -226,14 +209,22 @@ function navigateBrowsePath(path) {
     renderBrowseView();
 }
 
+// FIXED: Now properly navigates into subfolders
 function renderBrowseFolders() {
     const container = document.getElementById('browseFolders');
     if (!container) return;
     
+    // Navigate to current path
     let current = folderStructure;
-    browsePath.forEach(part => {
-        if (current[part]) current = current[part].subfolders;
-    });
+    for (let i = 0; i < browsePath.length; i++) {
+        const part = browsePath[i];
+        if (current[part] && current[part].subfolders) {
+            current = current[part].subfolders;
+        } else {
+            current = {};
+            break;
+        }
+    }
     
     const folders = Object.entries(current).filter(([key]) => key !== '_root_files');
     
@@ -248,7 +239,7 @@ function renderBrowseFolders() {
         container.innerHTML = folders.map(([name, folder]) => `
             <div class="folder-card">
                 <i class="fas fa-folder folder-icon" style="color: ${getFolderColor(name)};"></i>
-                <div class="folder-name" id="folder-name-${sanitizeId(name)}">${name}</div>
+                <div class="folder-name">${name}</div>
                 <div class="folder-info">
                     ${Object.keys(folder.subfolders || {}).length} subfolders • ${(folder.files || []).length} files
                 </div>
@@ -269,26 +260,35 @@ function renderBrowseFolders() {
     }
 }
 
+// FIXED: Now properly shows files in current folder
 function renderBrowseFiles() {
     const container = document.getElementById('browseFiles');
     if (!container) return;
     
-    let current = folderStructure;
-    browsePath.forEach(part => {
-        if (current[part]) current = current[part];
-    });
-    
-    // Get files from current folder or root
     let files = [];
+    
     if (browsePath.length === 0) {
-        // Root level - get files from root and _root_files
-        Object.entries(current).forEach(([key, value]) => {
-            if (key === '_root_files' && Array.isArray(value)) {
-                files = files.concat(value);
-            }
-        });
+        // Root level - collect files from _root_files
+        if (folderStructure['_root_files']) {
+            files = folderStructure['_root_files'];
+        }
     } else {
-        files = (current.files || []);
+        // Navigate to current folder
+        let current = folderStructure;
+        for (let i = 0; i < browsePath.length; i++) {
+            const part = browsePath[i];
+            if (current[part]) {
+                // If this is the last part, get files from this folder
+                if (i === browsePath.length - 1) {
+                    files = current[part].files || [];
+                } else {
+                    current = current[part].subfolders || {};
+                }
+            } else {
+                files = [];
+                break;
+            }
+        }
     }
     
     if (files.length === 0) {
@@ -305,12 +305,12 @@ function renderBrowseFiles() {
         <div class="file-card">
             <i class="fas ${getFileIcon(doc.file_type)} file-icon" style="color: ${getFolderColor(doc.file_type || '')};"></i>
             <div class="file-details">
-                <div class="file-name" id="file-name-${sanitizeId(doc.doc_id || doc.filename)}">${doc.filename}</div>
+                <div class="file-name">${doc.filename}</div>
                 <div class="file-meta">
                     ${doc.file_type ? doc.file_type.toUpperCase() : ''} • ${formatDate(doc.upload_date)}
                 </div>
             </div>
-            <button class="action-btn" onclick="renameDocument('${doc.doc_id}', '${doc.filename.replace(/'/g, "\\'")}')" title="Rename" style="flex-shrink: 0;">
+            <button class="action-btn" onclick="renameDocument('${doc.doc_id}', '${(doc.filename || '').replace(/'/g, "\\'")}')" title="Rename" style="flex-shrink: 0;">
                 <i class="fas fa-edit"></i>
             </button>
             <button class="action-btn delete-btn" onclick="deleteDocument('${doc.doc_id}')" style="flex-shrink: 0;">
@@ -326,18 +326,19 @@ function renameFolder(oldName) {
     const newName = prompt('Enter new folder name:', oldName);
     if (!newName || newName === oldName) return;
     
-    // Update folder structure
     let current = folderStructure;
-    browsePath.forEach(part => {
-        if (current[part]) current = current[part].subfolders;
-    });
+    for (let i = 0; i < browsePath.length; i++) {
+        const part = browsePath[i];
+        if (current[part] && current[part].subfolders) {
+            current = current[part].subfolders;
+        }
+    }
     
     if (current[oldName]) {
         current[newName] = current[oldName];
         current[newName].name = newName;
         delete current[oldName];
         
-        // Update all documents in this folder and subfolders
         updateDocumentCategories(current[newName], [...browsePath, newName]);
     }
     
@@ -362,13 +363,11 @@ function renameDocument(docId, oldFilename) {
     const newFilename = prompt('Enter new file name:', oldFilename);
     if (!newFilename || newFilename === oldFilename) return;
     
-    // Update in allDocuments
     const doc = allDocuments.find(d => d.doc_id === docId);
     if (doc) {
         doc.filename = newFilename;
     }
     
-    // Update in folder structure
     updateFilenameInStructure(folderStructure, docId, newFilename);
     
     renderBrowseView();
@@ -397,12 +396,14 @@ function deleteFolder(folderName) {
     if (!confirm(`Delete folder "${folderName}" and all its contents? This cannot be undone!`)) return;
     
     let current = folderStructure;
-    browsePath.forEach(part => {
-        if (current[part]) current = current[part].subfolders;
-    });
+    for (let i = 0; i < browsePath.length; i++) {
+        const part = browsePath[i];
+        if (current[part] && current[part].subfolders) {
+            current = current[part].subfolders;
+        }
+    }
     
     if (current[folderName]) {
-        // Delete all documents in this folder recursively
         deleteDocumentsInFolder(current[folderName]);
         delete current[folderName];
     }
