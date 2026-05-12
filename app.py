@@ -22,6 +22,7 @@ import traceback
 import time
 import re
 import uuid
+import requests
 
 load_dotenv()
 
@@ -57,7 +58,6 @@ load_hf_secrets()
 groq_key = os.environ.get('GROQ_API_KEY', 'NOT SET')
 print(f"🔑 GROQ_API_KEY: {'SET' if groq_key != 'NOT SET' else 'NOT SET'}")
 print(f"🔑 QDRANT_URL: {'SET' if os.environ.get('QDRANT_URL') else 'NOT SET'}")
-print(f"🔑 HF_TOKEN: {'SET' if os.environ.get('HF_TOKEN') else 'NOT SET'}")
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024
@@ -219,7 +219,6 @@ def chunk_text(text, size=500, overlap=50):
     return chunks if chunks else [text[:size]]
 
 def groq_chat_completion(messages, model="llama-3.1-8b-instant", max_tokens=150, temperature=0.7):
-    import requests
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {groq_api_key}",
@@ -254,6 +253,45 @@ def upload_to_hf_dataset(file_path, filename):
     except Exception as e:
         print(f"⚠️ HF backup failed: {e}")
         return False
+
+# ========== DUCKDUCKGO WEB SEARCH (FREE & UNLIMITED) ==========
+
+def search_web(query):
+    """Search the web using DuckDuckGo - completely free, no API key needed"""
+    try:
+        from duckduckgo_search import DDGS
+        
+        results = []
+        with DDGS() as ddgs:
+            search_results = list(ddgs.text(query, max_results=3))
+            for r in search_results:
+                results.append({
+                    "title": r.get("title", ""),
+                    "snippet": r.get("body", ""),
+                    "link": r.get("href", "")
+                })
+        
+        return results if results else None
+    except ImportError:
+        print("⚠️ duckduckgo-search not installed. Run: pip install duckduckgo-search")
+        return None
+    except Exception as e:
+        print(f"DuckDuckGo search error: {e}")
+        return None
+
+def needs_real_time_info(user_message):
+    """Detect if the question needs real-time/current information"""
+    user_lower = user_message.lower()
+    
+    real_time_indicators = [
+        'current', 'latest', 'today', 'now', '2024', '2025', '2026',
+        'president', 'prime minister', 'election', 'news', 'recent',
+        'weather', 'stock', 'price', 'score', 'live', 'update',
+        'who is the', 'who is current', 'currently', 'right now',
+        'what is the latest', 'what happened', 'breaking'
+    ]
+    
+    return any(indicator in user_lower for indicator in real_time_indicators)
 
 # ==================== ROUTES ====================
 
@@ -372,45 +410,43 @@ def chat():
         
         user_lower = user_message.lower().strip()
         
-        # ========== BETTER CLASSIFICATION ==========
-        
-        # Check if it's a real question (contains question words or ends with ?)
+        # Classification
         question_words = ['what', 'who', 'where', 'when', 'why', 'how', 'which', 'whose', 'whom', 'can you', 'could you', 'tell me', 'explain', 'define', 'describe']
         is_question = any(user_lower.startswith(q) for q in question_words) or user_message.strip().endswith('?')
         
-        # Greetings (only if very short and no question)
         greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening', 'sup', 'yo', 'hola', 'hii', 'heyy', 'helloo', 'morning', 'evening', 'good day']
         is_greeting = any(user_lower == g or user_lower.startswith(g + ' ') for g in greetings) and len(user_message.split()) <= 3 and not is_question
         
-        # Identity/AI questions
-        identity_q = ['who are you', 'what are you', 'your name', 'about yourself', 'introduce yourself', 'tell me about yourself', 'who created you', 'who made you', 'are you ai', 'are you human', 'are you real', 'are you a robot', 'are you a bot']
-        
-        # Location questions  
-        location_q = ['where are you', 'where do you live', 'your country', 'which country', 'where you from', 'your location', 'where were you', 'where did you']
-        
-        # Personal questions about user
-        user_personal_q = ['know my name', 'do you know me', 'who am i', 'what is my name', 'remember me', 'my name']
+        identity_q = ['who are you', 'what are you', 'your name', 'about yourself', 'introduce yourself', 'tell me about yourself', 'who created you', 'are you ai', 'are you human', 'are you real']
+        location_q = ['where are you', 'where do you live', 'your country', 'which country', 'where you from', 'your location']
+        user_personal_q = ['know my name', 'do you know me', 'who am i', 'what is my name', 'remember me']
         
         is_identity = any(q in user_lower for q in identity_q)
         is_location = any(q in user_lower for q in location_q) 
         is_user_personal = any(q in user_lower for q in user_personal_q)
         is_about_ai = is_identity or is_location
         
-        # Thanks
         thanks_words = ['thank', 'thanks', 'thx', 'appreciate']
         is_thanks = any(t in user_lower for t in thanks_words) and len(user_message.split()) <= 4 and not is_question
         
-        # Determine if casual chat
+        # Check if needs real-time info
+        needs_realtime = needs_real_time_info(user_message)
+        
         is_casual = is_greeting or is_thanks or is_about_ai or is_user_personal
         
-        print(f"Message: {user_message}")
-        print(f"  is_greeting={is_greeting}, is_about_ai={is_about_ai}, is_question={is_question}, is_casual={is_casual}")
+        # ========== WEB SEARCH FOR REAL-TIME INFO ==========
+        web_results = None
+        if needs_realtime and not is_casual:
+            print(f"🔍 Searching web for: {user_message}")
+            web_results = search_web(user_message)
+            if web_results:
+                print(f"✅ Found {len(web_results)} web results")
         
         # ========== SEARCH DOCUMENTS ==========
         doc_context = ""
         sources = []
         
-        if qdrant_client and embedding_model and not is_casual:
+        if qdrant_client and embedding_model and not is_casual and not web_results:
             try:
                 query_embedding = embedding_model.encode(user_message).tolist()
                 search_results = qdrant_client.search(
@@ -432,66 +468,74 @@ def chat():
         # ========== BUILD PROMPT ==========
         
         if is_greeting:
-            system_prompt = "You are a friendly AI assistant. Respond with a SHORT, warm greeting. 1 sentence only. Keep it natural and conversational."
-            user_prompt = f"User: {user_message}\n\nShort, friendly greeting:"
+            system_prompt = "You are a friendly AI assistant. Respond with a SHORT, warm greeting. 1 sentence only."
+            user_prompt = f"User: {user_message}\n\nShort greeting:"
             max_tokens = 50
             
         elif is_identity:
-            system_prompt = """You are an AI assistant. Answer honestly about yourself.
-Tell them: You're an AI assistant created to help people learn and answer questions. 
-You don't have a physical form, location, or personal identity.
-Keep it friendly and conversational. 2-3 sentences."""
-            user_prompt = f"User asks: {user_message}\n\nFriendly, honest response about being an AI:"
+            system_prompt = """You are an AI assistant. Tell them: You're an AI created to help people learn. No physical form. 2-3 friendly sentences."""
+            user_prompt = f"User: {user_message}\n\nFriendly AI response:"
             max_tokens = 100
             
         elif is_location:
-            system_prompt = """You are an AI assistant. Answer honestly about your location.
-Tell them: You're an AI, so you don't have a physical location or country. You exist in the cloud.
-Keep it friendly and light. 2 sentences."""
-            user_prompt = f"User asks: {user_message}\n\nFriendly response about not having a physical location:"
+            system_prompt = """You are an AI assistant. Explain you don't have a physical location - you exist in the cloud. 2 friendly sentences."""
+            user_prompt = f"User: {user_message}\n\nFriendly response:"
             max_tokens = 80
             
         elif is_user_personal:
-            system_prompt = "You are an AI assistant. Honestly tell the user you don't know their name or personal details, but you're happy to help them learn. Be friendly. 2 sentences."
-            user_prompt = f"User asks: {user_message}\n\nFriendly honest response:"
+            system_prompt = "You are an AI assistant. Honestly say you don't know their name but you're happy to help. 2 friendly sentences."
+            user_prompt = f"User: {user_message}\n\nHonest response:"
             max_tokens = 60
             
         elif is_thanks:
-            system_prompt = "You are a friendly AI. Respond to thanks warmly. 1 very short sentence."
-            user_prompt = f"User: {user_message}\n\nGracious response:"
+            system_prompt = "Respond to thanks warmly in 1 short sentence."
+            user_prompt = f"User: {user_message}\n\nResponse:"
             max_tokens = 30
             
-        elif doc_context:
-            system_prompt = """You are a helpful AI tutor. Answer the question naturally.
+        elif web_results:
+            # REAL-TIME MODE: Use web search results
+            web_context = ""
+            for r in web_results:
+                web_context += f"📰 {r.get('title', '')}: {r.get('snippet', '')}\n\n"
+            
+            system_prompt = """You are a knowledgeable AI assistant with access to real-time web search results.
 
 CRITICAL RULES:
-1. NEVER mention "study notes", "documents", "files", "PDFs", "lecture notes", or "course materials".
-2. NEVER say "According to..." or "The notes show..." or "Based on...".
-3. NEVER reference where you got the information.
-4. Just answer as if you naturally know the answer - like ChatGPT would.
-5. Use the reference material silently to inform your answer.
-6. Be clear and conversational.
-7. 3-5 sentences for explanations, 2-3 for definitions."""
+1. Answer based on the REAL-TIME web search results provided below.
+2. Use the latest information from the web to give an accurate, current answer.
+3. Be conversational and helpful.
+4. If the web results contain the answer, state it clearly.
+5. NEVER say "the web results show" or "according to the search" - just answer naturally.
+6. 3-5 sentences max."""
             
-            user_prompt = f"""Reference material (read silently - NEVER mention it exists):
+            user_prompt = f"""Real-time web search results for: {user_message}
+
+{web_context}
+
+Question: {user_message}
+
+Give an accurate, up-to-date answer based on these real-time results:"""
+            max_tokens = 250
+            
+        elif doc_context:
+            system_prompt = """You are a helpful AI tutor. Answer naturally.
+CRITICAL: NEVER mention "study notes", "documents", "files", or "PDFs".
+Just give the answer as if you know it yourself. Be clear and conversational. 3-5 sentences max."""
+            
+            user_prompt = f"""Reference (read silently, NEVER mention):
 {doc_context[:800]}
 
 Question: {user_message}
 
-Give a natural, direct answer as if you know it yourself:"""
+Natural answer:"""
             max_tokens = 250
             
         else:
-            system_prompt = """You are a smart, knowledgeable AI assistant. Answer questions naturally and helpfully.
-
-Rules:
-1. Answer directly and clearly.
-2. Be conversational and friendly.
-3. 3-5 sentences for explanations, 2-3 for definitions.
-4. Use your own knowledge confidently.
-5. You can answer ANY topic - science, history, math, technology, etc."""
+            system_prompt = """You are a smart, knowledgeable AI assistant. Answer naturally using your knowledge.
+Be conversational. 3-5 sentences for explanations, 2-3 for definitions.
+You can answer ANY topic - science, history, math, technology, etc."""
             
-            user_prompt = f"Question: {user_message}\n\nHelpful, natural answer:"
+            user_prompt = f"Question: {user_message}\n\nNatural answer:"
             max_tokens = 300
         
         # ========== GET RESPONSE ==========
@@ -525,7 +569,6 @@ Rules:
             response_text = re.sub(r'\*{1,3}', '', response_text)
             response_text = re.sub(r'#{1,4}\s*', '', response_text)
             
-            # Remove any document mentions
             doc_phrases = [
                 r'(?i).*study notes.*?\.\s*',
                 r'(?i).*the (documents?|files?|PDFs?|notes).*?\.\s*',
@@ -538,7 +581,6 @@ Rules:
                 response_text = re.sub(phrase, '', response_text)
             response_text = response_text.strip()
             
-            # Fallbacks for empty/inappropriate responses
             if is_greeting and (len(response_text) < 3 or len(response_text) > 80):
                 response_text = "Hey there! 👋 How can I help you today?"
             if is_about_ai and len(response_text) < 10:
@@ -550,7 +592,8 @@ Rules:
             
             return jsonify({
                 'response': response_text,
-                'sources': []
+                'sources': [],
+                'mode': 'realtime' if web_results else ('study' if doc_context else 'general')
             })
         else:
             return jsonify({'response': "I'm having trouble right now. Could you try asking again?"}), 500
@@ -574,7 +617,7 @@ def check_status():
         'document_count': doc_count,
         'api_connected': groq_connected,
         'qdrant_connected': qdrant_client is not None,
-        'hf_backup_ready': hf_api is not None
+        'web_search': 'DuckDuckGo (Free & Unlimited)'
     })
 
 @app.route('/admin/documents', methods=['GET'])
@@ -637,6 +680,7 @@ if __name__ == '__main__':
     print("\n" + "="*60)
     print("🚀 SERVER STARTED")
     print(f"📚 Documents: {doc_count}")
+    print(f"🔍 Web Search: DuckDuckGo (Free & Unlimited)")
     print(f"🌐 http://0.0.0.0:{port}/")
     print("="*60 + "\n")
     app.run(host='0.0.0.0', port=port, debug=False)
