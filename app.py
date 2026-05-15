@@ -231,10 +231,44 @@ def upload_to_hf_dataset(file_path, filename):
     except:
         return False
 
-# ========== WIKIPEDIA DIRECT CONNECTION ==========
+# ========== GOOGLE NEWS SEARCH (REAL-TIME) ==========
+
+def get_google_news(query):
+    """Get the latest news from Google News - always current"""
+    try:
+        encoded_query = urllib.parse.quote(query)
+        url = f"https://news.google.com/rss/search?q={encoded_query}&hl=en&gl=US&ceid=US:en"
+        
+        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        
+        if response.status_code == 200:
+            items = re.findall(r'<item>.*?<title>(.*?)</title>.*?<link>(.*?)</link>.*?<pubDate>(.*?)</pubDate>.*?<description>(.*?)</description>.*?</item>', response.text, re.DOTALL)
+            
+            results = []
+            for title, link, pubdate, desc in items[:5]:
+                clean_title = re.sub(r'<[^>]+>', '', title).strip()
+                clean_desc = re.sub(r'<[^>]+>', '', desc).strip()
+                clean_link = re.sub(r'<[^>]+>', '', link).strip()
+                
+                results.append({
+                    "title": clean_title,
+                    "snippet": clean_desc[:300],
+                    "link": clean_link,
+                    "date": pubdate.strip()
+                })
+            
+            if results:
+                print(f"✅ Google News: {len(results)} articles for '{query[:60]}'")
+                return results
+        return None
+    except Exception as e:
+        print(f"⚠️ Google News error: {e}")
+        return None
+
+# ========== WIKIPEDIA FALLBACK ==========
 
 def get_wikipedia_summary(query):
-    """Get accurate, up-to-date information directly from Wikipedia"""
+    """Get information from Wikipedia as fallback"""
     try:
         query = query.lower().strip()
         query = query.replace('srilanka', 'sri lanka')
@@ -273,9 +307,7 @@ def get_wikipedia_summary(query):
 def is_document_relevant(user_message, doc_context):
     """Check if documents are actually relevant to the question"""
     user_lower = user_message.lower()
-    doc_lower = doc_context.lower()
     
-    # Topics that should ALWAYS skip documents and go to Wikipedia
     skip_docs_keywords = [
         'president', 'minister', 'election', 'government', 'country', 'capital', 
         'leader', 'king', 'queen', 'prime minister', 'governor', 'mayor',
@@ -293,23 +325,23 @@ def is_document_relevant(user_message, doc_context):
         'phone', 'iphone', 'samsung', 'laptop', 'computer', 'technology',
         'car', 'bike', 'vehicle', 'transport',
         'population', 'area', 'continent', 'ocean', 'river', 'mountain',
-        'history', 'war', 'battle', 'revolution', 'independence',
+        'history', 'battle', 'revolution', 'independence',
     ]
     
     if any(kw in user_lower for kw in skip_docs_keywords):
-        print(f"   🚫 Question is general knowledge - skipping documents")
+        print(f"   🚫 General knowledge - skipping documents")
         return False
     
-    # Check if document content actually relates to the question
+    doc_lower = doc_context.lower()
     user_words = set(re.findall(r'\b\w{4,}\b', user_lower))
     doc_words = set(re.findall(r'\b\w{4,}\b', doc_lower))
     overlap = user_words & doc_words
     
     if len(overlap) < 2:
-        print(f"   🚫 Only {len(overlap)} matching keywords - documents not relevant")
+        print(f"   🚫 Only {len(overlap)} keywords - not relevant")
         return False
     
-    print(f"   ✅ {len(overlap)} matching keywords - documents are relevant")
+    print(f"   ✅ {len(overlap)} keywords - documents relevant")
     return True
 
 # ==================== ROUTES ====================
@@ -442,20 +474,33 @@ def chat():
                         texts.append(payload.get('text', ''))
                     if texts:
                         doc_context = "\n\n".join(texts[:3])
-                        # CHECK IF DOCUMENTS ARE ACTUALLY RELEVANT
                         if len(doc_context) > 100 and is_document_relevant(user_message, doc_context):
                             found_in_docs = True
                             print(f"📚 Documents are relevant ({len(texts)} chunks)")
                         else:
-                            print(f"   📚 Documents found but NOT relevant - will use Wikipedia")
+                            print(f"   📚 Documents NOT relevant - will search online")
             except Exception as e:
                 print(f"Document search error: {e}")
         
-        # ========== WIKIPEDIA FALLBACK ==========
+        # ========== ONLINE KNOWLEDGE SOURCE ==========
+        news_results = None
         wiki_results = None
+        
         if not is_casual and not found_in_docs:
-            print(f"🔍 Searching Wikipedia...")
-            wiki_results = get_wikipedia_summary(user_message)
+            # Check if this needs real-time news
+            political_keywords = ['president', 'minister', 'election', 'government', 'leader', 
+                                'pm ', ' cm ', 'chief minister', 'prime minister', 'governor',
+                                'current', 'latest', 'today', 'news', '2026', '2025']
+            needs_news = any(kw in user_lower for kw in political_keywords)
+            
+            if needs_news:
+                print(f"🔍 Searching Google News...")
+                news_results = get_google_news(user_message)
+            
+            # Fallback to Wikipedia
+            if not news_results:
+                print(f"🔍 Searching Wikipedia...")
+                wiki_results = get_wikipedia_summary(user_message)
         
         # ========== BUILD PROMPT ==========
         
@@ -496,17 +541,35 @@ Natural answer:"""
             max_tokens = 250
             temperature = 0.7
             
+        elif news_results:
+            news_context = "\n\n".join([f"📰 {r['title']}\n{r['snippet']}\nDate: {r.get('date', '')}" for r in news_results])
+            print(f"📰 News context: {len(news_context)} chars")
+            
+            system_prompt = """READ THE LATEST NEWS BELOW.
+These are the MOST RECENT news articles about the topic.
+EXTRACT the current information from these news articles.
+STATE the answer directly in 1-2 sentences.
+DO NOT use outdated information from your training data.
+The news articles contain the CURRENT, UP-TO-DATE answer."""
+            
+            user_prompt = f"""LATEST NEWS ARTICLES:
+{news_context[:1200]}
+
+QUESTION: {user_message}
+
+Answer based on the LATEST NEWS above:"""
+            max_tokens = 200
+            temperature = 0.1
+            
         elif wiki_results:
             wiki_context = "\n\n".join([f"ARTICLE: {r['title']}\n{r['snippet']}" for r in wiki_results])
             print(f"📖 Wikipedia: {len(wiki_context)} chars")
-            print(f"   Preview: {wiki_context[:200]}...")
             
             system_prompt = """READ THE WIKIPEDIA TEXT BELOW.
 EXTRACT the answer from the Wikipedia text.
 STATE the answer directly in 1-2 sentences.
 DO NOT say "I don't know".
 DO NOT mention RPC, RMI, or previous topics.
-DO NOT say "that's not related".
 JUST ANSWER using the Wikipedia text."""
             
             user_prompt = f"""WIKIPEDIA INFORMATION:
@@ -555,11 +618,12 @@ ANSWER (use Wikipedia info above):"""
             response_text = re.sub(r'\*{1,3}', '', response_text)
             response_text = re.sub(r'#{1,4}\s*', '', response_text)
             
-            # FORCE Wikipedia text if AI refuses to answer
-            if wiki_results and ('not aware' in response_text.lower() or "don't know" in response_text.lower() or 'not related' in response_text.lower() or 'rpc' in response_text.lower() or 'rmi' in response_text.lower() or 'course material' in response_text.lower()):
-                first_snippet = wiki_results[0]['snippet'][:300]
+            # FORCE online content if AI refuses
+            if (news_results or wiki_results) and ('not aware' in response_text.lower() or "don't know" in response_text.lower() or 'not related' in response_text.lower() or 'rpc' in response_text.lower() or 'rmi' in response_text.lower() or 'course material' in response_text.lower()):
+                source = news_results if news_results else wiki_results
+                first_snippet = source[0]['snippet'][:300]
                 response_text = first_snippet
-                print("⚠️ AI refused - using Wikipedia directly")
+                print("⚠️ AI refused - using online source directly")
             
             bad_phrases = [
                 r"(?i).*study notes.*?\.\s*",
@@ -587,7 +651,7 @@ ANSWER (use Wikipedia info above):"""
             return jsonify({
                 'response': response_text,
                 'sources': [],
-                'mode': 'wiki' if wiki_results else ('study' if found_in_docs else 'general')
+                'mode': 'news' if news_results else ('wiki' if wiki_results else ('study' if found_in_docs else 'general'))
             })
         else:
             return jsonify({'response': "I'm having trouble. Please try again!"}), 500
@@ -608,7 +672,7 @@ def check_status():
         'document_count': doc_count,
         'api_connected': groq_connected,
         'qdrant_connected': qdrant_client is not None,
-        'knowledge_source': 'Documents (if relevant) + Wikipedia (Free)'
+        'knowledge_source': 'Documents + Google News + Wikipedia (All Free)'
     })
 
 @app.route('/admin/documents', methods=['GET'])
@@ -660,7 +724,7 @@ if __name__ == '__main__':
     print("\n" + "="*60)
     print("🚀 SERVER STARTED")
     print(f"📚 Documents: {doc_count}")
-    print(f"📖 Knowledge: Documents (if relevant) + Wikipedia (Free)")
+    print(f"📖 Knowledge: Documents + Google News + Wikipedia (All Free)")
     print(f"🌐 http://0.0.0.0:{port}/")
     print("="*60 + "\n")
     app.run(host='0.0.0.0', port=port, debug=False)
