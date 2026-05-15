@@ -23,17 +23,6 @@ import time
 import re
 import uuid
 import requests
-from urllib.parse import quote
-
-# Try to import DuckDuckGo search
-try:
-    from duckduckgo_search import DDGS
-    DDGS_AVAILABLE = True
-    print("✅ DuckDuckGo Search library loaded (FREE & PERMANENT)")
-except ImportError:
-    DDGS_AVAILABLE = False
-    print("⚠️ duckduckgo-search not installed. Run: pip install duckduckgo-search")
-    print("⚠️ Using fallback search method")
 
 load_dotenv()
 
@@ -267,111 +256,28 @@ def upload_to_hf_dataset(file_path, filename):
 
 # ========== DUCKDUCKGO WEB SEARCH (FREE & UNLIMITED) ==========
 
-def search_web_duckduckgo(query, max_results=3):
-    """
-    Search the web using DuckDuckGo - completely free, no API key needed.
-    This is the primary search method.
-    """
-    if not DDGS_AVAILABLE:
-        print("⚠️ DuckDuckGo library not available, trying fallback...")
-        return search_web_fallback(query, max_results)
-    
+def search_web(query):
+    """Search the web using DuckDuckGo - completely free, no API key needed"""
     try:
-        print(f"🔍 Searching DuckDuckGo for: {query}")
-        results = []
+        from duckduckgo_search import DDGS
         
+        results = []
         with DDGS() as ddgs:
-            # Perform the search
-            search_results = list(ddgs.text(query, max_results=max_results))
-            
+            search_results = list(ddgs.text(query, max_results=3))
             for r in search_results:
                 results.append({
                     "title": r.get("title", ""),
                     "snippet": r.get("body", ""),
-                    "link": r.get("href", ""),
-                    "source": "DuckDuckGo"
+                    "link": r.get("href", "")
                 })
-            
-            if results:
-                print(f"✅ DuckDuckGo found {len(results)} results")
-                return results
-            else:
-                print(f"⚠️ No results found for: {query}")
-                return None
-                
+        
+        return results if results else None
+    except ImportError:
+        print("⚠️ duckduckgo-search not installed. Run: pip install duckduckgo-search")
+        return None
     except Exception as e:
         print(f"DuckDuckGo search error: {e}")
-        # Try fallback method
-        return search_web_fallback(query, max_results)
-
-def search_web_fallback(query, max_results=3):
-    """
-    Fallback search method using DuckDuckGo's Instant Answer API.
-    Works without the duckduckgo-search library.
-    """
-    try:
-        print(f"🔍 Using fallback search for: {query}")
-        encoded_query = quote(query)
-        url = f"https://api.duckduckgo.com/?q={encoded_query}&format=json&no_html=1&skip_disambig=1"
-        
-        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            results = []
-            
-            # Extract abstract (main answer)
-            if data.get('AbstractText'):
-                results.append({
-                    "title": data.get('Heading', query),
-                    "snippet": data.get('AbstractText', ''),
-                    "link": data.get('AbstractURL', ''),
-                    "source": "DuckDuckGo (Instant Answer)"
-                })
-            
-            # Extract related topics
-            for topic in data.get('RelatedTopics', [])[:max_results-1]:
-                if isinstance(topic, dict) and topic.get('Text'):
-                    # Parse the text to separate title and content
-                    text = topic.get('Text', '')
-                    parts = text.split(' - ', 1)
-                    title = parts[0] if parts else text[:50]
-                    content = parts[1] if len(parts) > 1 else text
-                    
-                    results.append({
-                        "title": title,
-                        "snippet": content,
-                        "link": topic.get('FirstURL', ''),
-                        "source": "DuckDuckGo (Related)"
-                    })
-            
-            if results:
-                print(f"✅ Fallback search found {len(results)} results")
-                return results
-            else:
-                print(f"⚠️ No results from fallback search")
-                return None
-        else:
-            print(f"⚠️ Fallback search HTTP error: {response.status_code}")
-            return None
-            
-    except Exception as e:
-        print(f"Fallback search error: {e}")
         return None
-
-def search_web(query):
-    """
-    Main search function - tries primary method first, then fallback.
-    Returns list of search results or None if no results found.
-    """
-    # First try primary DuckDuckGo search
-    results = search_web_duckduckgo(query)
-    
-    # If primary fails, try fallback
-    if not results:
-        results = search_web_fallback(query)
-    
-    return results
 
 def needs_real_time_info(user_message):
     """Detect if the question needs real-time/current information"""
@@ -380,10 +286,9 @@ def needs_real_time_info(user_message):
     real_time_indicators = [
         'current', 'latest', 'today', 'now', '2024', '2025', '2026',
         'president', 'prime minister', 'election', 'news', 'recent',
-        'weather', 'stock', 'price', 'score', 'live', 'update', 'breaking',
+        'weather', 'stock', 'price', 'score', 'live', 'update',
         'who is the', 'who is current', 'currently', 'right now',
-        'what is the latest', 'what happened', 'yesterday', 'this week',
-        'this month', 'this year', 'newest', 'recently'
+        'what is the latest', 'what happened', 'breaking'
     ]
     
     return any(indicator in user_lower for indicator in real_time_indicators)
@@ -532,12 +437,10 @@ def chat():
         # ========== WEB SEARCH FOR REAL-TIME INFO ==========
         web_results = None
         if needs_realtime and not is_casual:
-            print(f"🔍 REAL-TIME QUERY DETECTED: {user_message}")
+            print(f"🔍 Searching web for: {user_message}")
             web_results = search_web(user_message)
             if web_results:
-                print(f"✅ Got {len(web_results)} web results for real-time answer")
-            else:
-                print(f"⚠️ No web results found, will use general knowledge")
+                print(f"✅ Found {len(web_results)} web results")
         
         # ========== SEARCH DOCUMENTS ==========
         doc_context = ""
@@ -559,11 +462,10 @@ def chat():
                         texts.append(payload.get('text', ''))
                     if texts:
                         doc_context = "\n\n".join(texts[:3])
-                        print(f"📚 Found relevant documents: {len(sources)} sources")
             except Exception as e:
-                print(f"Document search error: {e}")
+                print(f"Search error: {e}")
         
-        # ========== BUILD PROMPT BASED ON CONTEXT ==========
+        # ========== BUILD PROMPT ==========
         
         if is_greeting:
             system_prompt = "You are a friendly AI assistant. Respond with a SHORT, warm greeting. 1 sentence only."
@@ -593,55 +495,50 @@ def chat():
         elif web_results:
             # REAL-TIME MODE: Use web search results
             web_context = ""
-            for idx, r in enumerate(web_results, 1):
-                web_context += f"[{idx}] {r.get('title', 'No title')}\n"
-                web_context += f"    {r.get('snippet', 'No content')}\n"
-                if r.get('link'):
-                    web_context += f"    Source: {r.get('link')}\n"
-                web_context += "\n"
+            for r in web_results:
+                web_context += f"📰 {r.get('title', '')}: {r.get('snippet', '')}\n\n"
             
-            system_prompt = """You are a knowledgeable AI assistant with access to REAL-TIME web search results.
+            system_prompt = """You are a knowledgeable AI assistant with access to real-time web search results.
 
-IMPORTANT RULES:
-1. Answer based on the LATEST real-time web search results provided below
-2. Use CURRENT information (today's date and current events)
-3. Be conversational and helpful - don't sound like a robot
-4. If the web results contain the answer, state it clearly and confidently
-5. Cite information naturally (e.g., "According to recent reports..." not "The search results show...")
-6. Keep your answer concise - 3-5 sentences for most questions
-7. If the question asks about a specific person/event, give the most up-to-date information
-
-Remember: You're providing REAL-TIME information, not outdated knowledge!"""
+CRITICAL RULES:
+1. Answer based on the REAL-TIME web search results provided below.
+2. Use the latest information from the web to give an accurate, current answer.
+3. Be conversational and helpful.
+4. If the web results contain the answer, state it clearly.
+5. NEVER say "the web results show" or "according to the search" - just answer naturally.
+6. 3-5 sentences max."""
             
-            user_prompt = f"""Question from user: {user_message}
+            user_prompt = f"""Real-time web search results for: {user_message}
 
-REAL-TIME WEB SEARCH RESULTS:
 {web_context}
 
-Based on these current search results, provide an accurate, up-to-date answer:"""
-            max_tokens = 300
+Question: {user_message}
+
+Give an accurate, up-to-date answer based on these real-time results:"""
+            max_tokens = 250
             
         elif doc_context:
-            system_prompt = """You are a helpful AI tutor using study materials.
-IMPORTANT: NEVER mention "study notes", "documents", "files", or "PDFs".
-Just give the answer as if you know it naturally. Be clear and conversational. 3-5 sentences max."""
+            system_prompt = """You are a helpful AI tutor. Answer naturally.
+CRITICAL: NEVER mention "study notes", "documents", "files", or "PDFs".
+Just give the answer as if you know it yourself. Be clear and conversational. 3-5 sentences max."""
             
-            user_prompt = f"""Reference information (use silently, never mention):
-{doc_context[:1000]}
+            user_prompt = f"""Reference (read silently, NEVER mention):
+{doc_context[:800]}
+
 Question: {user_message}
-Natural answer based on the above (but don't mention the source):"""
+
+Natural answer:"""
             max_tokens = 250
             
         else:
-            system_prompt = """You are a smart, knowledgeable AI assistant. Answer naturally using your general knowledge.
-Be conversational and helpful. 3-5 sentences for explanations, 2-3 for definitions.
-You can answer ANY topic - science, history, math, technology, current events, etc.
-If you don't know something, say so honestly."""
+            system_prompt = """You are a smart, knowledgeable AI assistant. Answer naturally using your knowledge.
+Be conversational. 3-5 sentences for explanations, 2-3 for definitions.
+You can answer ANY topic - science, history, math, technology, etc."""
             
-            user_prompt = f"Question: {user_message}\n\nNatural, conversational answer:"
+            user_prompt = f"Question: {user_message}\n\nNatural answer:"
             max_tokens = 300
         
-        # ========== GET RESPONSE FROM GROQ ==========
+        # ========== GET RESPONSE ==========
         response_text = None
         models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
         
@@ -652,10 +549,8 @@ If you don't know something, say so honestly."""
                         messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
                         model=model, max_tokens=max_tokens, temperature=0.7
                     )
-                    if response_text:
-                        break
-                except Exception as e:
-                    print(f"Model {model} failed: {e}")
+                    break
+                except:
                     continue
         else:
             for model in models_to_try:
@@ -666,64 +561,45 @@ If you don't know something, say so honestly."""
                         temperature=0.7, max_tokens=max_tokens
                     )
                     response_text = completion.choices[0].message.content
-                    if response_text:
-                        break
-                except Exception as e:
-                    print(f"Model {model} failed: {e}")
+                    break
+                except:
                     continue
         
-        # ========== CLEAN UP RESPONSE ==========
         if response_text:
-            # Remove markdown formatting
             response_text = re.sub(r'\*{1,3}', '', response_text)
             response_text = re.sub(r'#{1,4}\s*', '', response_text)
-            response_text = re.sub(r'\[[0-9]+\]', '', response_text)
             
-            # Remove any references to documents/sources for study mode
-            if doc_context and not web_results:
-                doc_phrases = [
-                    r'(?i).*the (documents?|files?|PDFs?|notes).*?\.\s*',
-                    r'(?i).*according to.*?\.\s*',
-                    r'(?i).*based on.*?\.\s*',
-                    r'(?i).*reference material.*?\.\s*',
-                ]
-                for phrase in doc_phrases:
-                    response_text = re.sub(phrase, '', response_text)
-            
+            doc_phrases = [
+                r'(?i).*study notes.*?\.\s*',
+                r'(?i).*the (documents?|files?|PDFs?|notes).*?\.\s*',
+                r'(?i).*according to.*?\.\s*',
+                r'(?i).*based on.*?\.\s*',
+                r'(?i).*reference material.*?\.\s*',
+                r'(?i).*course (materials?|notes).*?\.\s*',
+            ]
+            for phrase in doc_phrases:
+                response_text = re.sub(phrase, '', response_text)
             response_text = response_text.strip()
             
-            # Fallback responses for edge cases
             if is_greeting and (len(response_text) < 3 or len(response_text) > 80):
                 response_text = "Hey there! 👋 How can I help you today?"
             if is_about_ai and len(response_text) < 10:
-                response_text = "I'm an AI assistant! I don't have a physical location - I exist in the cloud to help you learn and answer questions. 😊"
+                response_text = "I'm an AI assistant! I don't have a physical location or country - I exist in the cloud to help you learn and answer questions. 😊"
             if is_thanks and len(response_text) > 40:
                 response_text = "You're welcome! 😊"
             if not response_text or len(response_text) < 2:
                 response_text = "How can I help you today?"
             
-            # Determine response mode for UI
-            if web_results:
-                mode = "realtime"
-                print(f"💡 Responded with REAL-TIME info from web")
-            elif doc_context:
-                mode = "study"
-                print(f"📚 Responded using study documents")
-            else:
-                mode = "general"
-                print(f"🧠 Responded using general knowledge")
-            
             return jsonify({
                 'response': response_text,
-                'sources': sources if not web_results else [r.get('link', '') for r in web_results[:2]],
-                'mode': mode
+                'sources': [],
+                'mode': 'realtime' if web_results else ('study' if doc_context else 'general')
             })
         else:
             return jsonify({'response': "I'm having trouble right now. Could you try asking again?"}), 500
             
     except Exception as e:
         print(f"Chat error: {e}")
-        traceback.print_exc()
         return jsonify({'response': "Sorry, I encountered an issue. Please try again!"}), 500
 
 @app.route('/check-status', methods=['GET'])
@@ -735,25 +611,13 @@ def check_status():
             doc_count = info.points_count
         except:
             pass
-    
-    # Test web search availability
-    web_search_available = DDGS_AVAILABLE
-    if not web_search_available:
-        # Try fallback
-        try:
-            test_result = search_web_fallback("test", max_results=1)
-            web_search_available = test_result is not None
-        except:
-            web_search_available = False
-    
     return jsonify({
         'status': 'online',
         'documents_available': doc_count > 0,
         'document_count': doc_count,
         'api_connected': groq_connected,
         'qdrant_connected': qdrant_client is not None,
-        'web_search_available': web_search_available,
-        'web_search_provider': 'DuckDuckGo (Free & Unlimited)'
+        'web_search': 'DuckDuckGo (Free & Unlimited)'
     })
 
 @app.route('/admin/documents', methods=['GET'])
@@ -778,8 +642,8 @@ def get_documents():
                         'doc_id': point.id,
                         'chunks': 1
                     })
-        except Exception as e:
-            print(f"Error fetching documents: {e}")
+        except:
+            pass
     return jsonify({'success': True, 'documents': docs})
 
 @app.route('/admin/delete/<doc_id>', methods=['DELETE'])
@@ -789,8 +653,7 @@ def delete_document(doc_id):
         if qdrant_client:
             qdrant_client.delete(collection_name="university_notes", points_selector=[doc_id])
         return jsonify({'success': True})
-    except Exception as e:
-        print(f"Delete error: {e}")
+    except:
         return jsonify({'success': False}), 500
 
 @app.route('/admin/stats')
@@ -814,15 +677,10 @@ if __name__ == '__main__':
             doc_count = info.points_count
         except:
             pass
-    
     print("\n" + "="*60)
     print("🚀 SERVER STARTED")
-    print(f"📚 Documents in Qdrant: {doc_count}")
-    print(f"🔍 Web Search: DuckDuckGo (FREE & UNLIMITED)")
-    print(f"   - Primary: duckduckgo-search library")
-    print(f"   - Fallback: DuckDuckGo Instant Answer API")
-    print(f"🌐 Web Interface: http://0.0.0.0:{port}/")
-    print(f"🔧 Admin Panel: http://0.0.0.0:{port}/admin")
+    print(f"📚 Documents: {doc_count}")
+    print(f"🔍 Web Search: DuckDuckGo (Free & Unlimited)")
+    print(f"🌐 http://0.0.0.0:{port}/")
     print("="*60 + "\n")
-    
     app.run(host='0.0.0.0', port=port, debug=False)
