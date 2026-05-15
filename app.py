@@ -231,86 +231,119 @@ def upload_to_hf_dataset(file_path, filename):
     except:
         return False
 
-# ========== GOOGLE NEWS SEARCH (REAL-TIME) ==========
+# ========== PERMANENT FREE MULTI-SOURCE SEARCH ==========
 
-def get_google_news(query):
-    """Get the latest news from Google News - always current"""
+def search_all_sources(query):
+    """Search multiple free sources - returns best available results"""
+    clean_query = query.lower().strip()
+    clean_query = clean_query.replace('srilanka', 'sri lanka')
+    clean_query = clean_query.replace('tamilnadu', 'tamil nadu')
+    
+    # Add "current" for political queries
+    political_words = ['president', 'minister', 'cm', 'chief minister', 'governor', 'prime minister', 'leader']
+    if any(w in clean_query for w in political_words):
+        if 'current' not in clean_query and '2026' not in clean_query and '2025' not in clean_query:
+            clean_query = 'current ' + clean_query
+    
+    # Source 1: DuckDuckGo Instant Answers
+    print("🔍 Source 1: DuckDuckGo Instant Answers...")
+    results = _ddg_instant(clean_query)
+    if results: return results, 'ddg'
+    
+    # Source 2: Google News RSS
+    print("🔍 Source 2: Google News RSS...")
+    results = _google_news_rss(clean_query)
+    if results: return results, 'news'
+    
+    # Source 3: Wikipedia
+    print("🔍 Source 3: Wikipedia...")
+    results = _wikipedia_search(clean_query)
+    if results: return results, 'wiki'
+    
+    return None, None
+
+def _ddg_instant(query):
+    """DuckDuckGo Instant Answers - free, no API key"""
+    try:
+        url = "https://api.duckduckgo.com/"
+        params = {"q": query, "format": "json", "no_html": 1, "skip_disambig": 1}
+        response = requests.get(url, params=params, timeout=10)
+        data = response.json()
+        results = []
+        
+        if data.get("AbstractText") and len(data.get("AbstractText", "")) > 20:
+            results.append({"title": data.get("AbstractSource", "DuckDuckGo"), "snippet": data.get("AbstractText", ""), "link": data.get("AbstractURL", "")})
+        
+        if data.get("Answer") and len(data.get("Answer", "")) > 10:
+            results.append({"title": "📌 Direct Answer", "snippet": data.get("Answer", ""), "link": ""})
+        
+        for topic in data.get("RelatedTopics", [])[:3]:
+            if isinstance(topic, dict) and topic.get("Text"):
+                results.append({"title": "Related", "snippet": topic.get("Text", ""), "link": topic.get("FirstURL", "")})
+        
+        if results:
+            print(f"✅ DDG: {len(results)} answers")
+            return results
+        return None
+    except Exception as e:
+        print(f"⚠️ DDG error: {e}")
+        return None
+
+def _google_news_rss(query):
+    """Google News RSS - free, real-time"""
     try:
         encoded_query = urllib.parse.quote(query)
         url = f"https://news.google.com/rss/search?q={encoded_query}&hl=en&gl=US&ceid=US:en"
-        
         response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-        
         if response.status_code == 200:
-            items = re.findall(r'<item>.*?<title>(.*?)</title>.*?<link>(.*?)</link>.*?<pubDate>(.*?)</pubDate>.*?<description>(.*?)</description>.*?</item>', response.text, re.DOTALL)
-            
+            items = re.findall(r'<item>.*?<title>(.*?)</title>.*?<pubDate>(.*?)</pubDate>.*?<description>(.*?)</description>.*?</item>', response.text, re.DOTALL)
             results = []
-            for title, link, pubdate, desc in items[:5]:
+            for title, pubdate, desc in items[:5]:
                 clean_title = re.sub(r'<[^>]+>', '', title).strip()
                 clean_desc = re.sub(r'<[^>]+>', '', desc).strip()
-                clean_link = re.sub(r'<[^>]+>', '', link).strip()
-                
-                results.append({
-                    "title": clean_title,
-                    "snippet": clean_desc[:300],
-                    "link": clean_link,
-                    "date": pubdate.strip()
-                })
-            
+                if len(clean_desc) > 30:
+                    results.append({"title": clean_title, "snippet": clean_desc[:300], "link": "", "date": pubdate.strip()})
             if results:
-                print(f"✅ Google News: {len(results)} articles for '{query[:60]}'")
+                print(f"✅ Google News: {len(results)} articles")
                 return results
         return None
     except Exception as e:
         print(f"⚠️ Google News error: {e}")
         return None
 
-# ========== WIKIPEDIA FALLBACK ==========
-
-def get_wikipedia_summary(query):
-    """Get information from Wikipedia as fallback"""
+def _wikipedia_search(query):
+    """Wikipedia - free, no API key"""
     try:
-        query = query.lower().strip()
-        query = query.replace('srilanka', 'sri lanka')
-        
-        search_url = f"https://en.wikipedia.org/w/api.php?action=opensearch&search={urllib.parse.quote(query)}&limit=3&format=json"
+        search_url = f"https://en.wikipedia.org/w/api.php?action=opensearch&search={urllib.parse.quote(query)}&limit=2&format=json"
         response = requests.get(search_url, headers={"User-Agent": "AI-Chatbot/1.0"}, timeout=10)
         data = response.json()
-        
         if len(data) >= 2 and data[1]:
-            summaries = []
-            for page_title in data[1][:3]:
+            results = []
+            for page_title in data[1][:2]:
                 try:
                     summary_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{urllib.parse.quote(page_title)}"
                     summary_response = requests.get(summary_url, headers={"User-Agent": "AI-Chatbot/1.0"}, timeout=10)
                     summary_data = summary_response.json()
-                    
                     extract = summary_data.get('extract', '')
-                    if extract:
+                    if extract and len(extract) > 50:
                         sentences = re.split(r'(?<=[.!?])\s+', extract)
-                        snippet = ' '.join(sentences[:5])
-                        summaries.append({
-                            "title": page_title,
-                            "snippet": snippet,
-                            "link": f"https://en.wikipedia.org/wiki/{urllib.parse.quote(page_title.replace(' ', '_'))}"
-                        })
-                except:
-                    continue
-            
-            if summaries:
-                print(f"✅ Wikipedia: {len(summaries)} articles for '{query[:60]}'")
-                return summaries
+                        snippet = ' '.join(sentences[:6])
+                        results.append({"title": page_title, "snippet": snippet, "link": f"https://en.wikipedia.org/wiki/{urllib.parse.quote(page_title.replace(' ', '_'))}"})
+                except: continue
+            if results:
+                print(f"✅ Wikipedia: {len(results)} articles")
+                return results
+        return None
     except Exception as e:
         print(f"⚠️ Wikipedia error: {e}")
-    return None
+        return None
 
 def is_document_relevant(user_message, doc_context):
-    """Check if documents are actually relevant to the question"""
+    """Check if documents are relevant to the question"""
     user_lower = user_message.lower()
-    
     skip_docs_keywords = [
         'president', 'minister', 'election', 'government', 'country', 'capital', 
-        'leader', 'king', 'queen', 'prime minister', 'governor', 'mayor',
+        'leader', 'king', 'queen', 'prime minister', 'governor', 'mayor', 'cm ',
         'war', 'army', 'military', 'navy', 'air force',
         'movie', 'actor', 'actress', 'film', 'cinema', 'hollywood', 'bollywood',
         'song', 'music', 'singer', 'band', 'album', 'concert',
@@ -327,20 +360,16 @@ def is_document_relevant(user_message, doc_context):
         'population', 'area', 'continent', 'ocean', 'river', 'mountain',
         'history', 'battle', 'revolution', 'independence',
     ]
-    
     if any(kw in user_lower for kw in skip_docs_keywords):
         print(f"   🚫 General knowledge - skipping documents")
         return False
-    
     doc_lower = doc_context.lower()
     user_words = set(re.findall(r'\b\w{4,}\b', user_lower))
     doc_words = set(re.findall(r'\b\w{4,}\b', doc_lower))
     overlap = user_words & doc_words
-    
     if len(overlap) < 2:
         print(f"   🚫 Only {len(overlap)} keywords - not relevant")
         return False
-    
     print(f"   ✅ {len(overlap)} keywords - documents relevant")
     return True
 
@@ -482,111 +511,63 @@ def chat():
             except Exception as e:
                 print(f"Document search error: {e}")
         
-        # ========== ONLINE KNOWLEDGE SOURCE ==========
-        news_results = None
-        wiki_results = None
+        # ========== ONLINE SEARCH ==========
+        search_results = None
+        search_source = None
         
         if not is_casual and not found_in_docs:
-            # Check if this needs real-time news
-            political_keywords = ['president', 'minister', 'election', 'government', 'leader', 
-                                'pm ', ' cm ', 'chief minister', 'prime minister', 'governor',
-                                'current', 'latest', 'today', 'news', '2026', '2025']
-            needs_news = any(kw in user_lower for kw in political_keywords)
-            
-            if needs_news:
-                print(f"🔍 Searching Google News...")
-                news_results = get_google_news(user_message)
-            
-            # Fallback to Wikipedia
-            if not news_results:
-                print(f"🔍 Searching Wikipedia...")
-                wiki_results = get_wikipedia_summary(user_message)
+            search_results, search_source = search_all_sources(user_message)
         
         # ========== BUILD PROMPT ==========
         
         if is_greeting:
             system_prompt = "Friendly AI. SHORT greeting (1 sentence)."
             user_prompt = f"User: {user_message}\n\nShort greeting:"
-            max_tokens = 50
-            temperature = 0.7
+            max_tokens = 50; temperature = 0.7
             
         elif is_short_ack:
             system_prompt = "Friendly AI. Short acknowledgment (1 sentence)."
             user_prompt = f"User: {user_message}\n\nShort response:"
-            max_tokens = 40
-            temperature = 0.7
+            max_tokens = 40; temperature = 0.7
             
         elif is_thanks:
             system_prompt = "Respond to thanks warmly. 1 sentence."
             user_prompt = f"User: {user_message}\n\nResponse:"
-            max_tokens = 30
-            temperature = 0.7
+            max_tokens = 30; temperature = 0.7
             
         elif is_about_ai:
             system_prompt = "AI assistant. Be honest about being AI. 2 friendly sentences."
             user_prompt = f"User: {user_message}\n\nFriendly response:"
-            max_tokens = 80
-            temperature = 0.7
+            max_tokens = 80; temperature = 0.7
             
         elif found_in_docs:
             system_prompt = """Helpful AI tutor. Answer from course material.
 NEVER mention "study notes", "documents", "files", "PDFs".
 Answer naturally. 3-5 sentences max."""
-            user_prompt = f"""Course material (silent):
-{doc_context[:800]}
-
-Question: {user_message}
-
-Natural answer:"""
-            max_tokens = 250
-            temperature = 0.7
+            user_prompt = f"""Course material (silent):\n{doc_context[:800]}\n\nQuestion: {user_message}\n\nNatural answer:"""
+            max_tokens = 250; temperature = 0.7
             
-        elif news_results:
-            news_context = "\n\n".join([f"📰 {r['title']}\n{r['snippet']}\nDate: {r.get('date', '')}" for r in news_results])
-            print(f"📰 News context: {len(news_context)} chars")
+        elif search_results:
+            search_context = "\n\n".join([f"📰 {r['title']}\n{r['snippet']}" for r in search_results])
+            print(f"📰 Search context ({search_source}): {len(search_context)} chars")
+            print(f"   Preview: {search_context[:200]}...")
             
-            system_prompt = """READ THE LATEST NEWS BELOW.
-These are the MOST RECENT news articles about the topic.
-EXTRACT the current information from these news articles.
-STATE the answer directly in 1-2 sentences.
-DO NOT use outdated information from your training data.
-The news articles contain the CURRENT, UP-TO-DATE answer."""
+            system_prompt = """You are a helpful AI assistant. 
+READ the search results below carefully.
+EXTRACT the answer to the user's question from these results.
+STATE the answer in 1-2 sentences.
+DO NOT use your training data - use ONLY the search results.
+DO NOT say "I don't know" if the results contain information.
+If the results mention a name for the role asked about, that IS the answer."""
             
-            user_prompt = f"""LATEST NEWS ARTICLES:
-{news_context[:1200]}
-
-QUESTION: {user_message}
-
-Answer based on the LATEST NEWS above:"""
-            max_tokens = 200
-            temperature = 0.1
-            
-        elif wiki_results:
-            wiki_context = "\n\n".join([f"ARTICLE: {r['title']}\n{r['snippet']}" for r in wiki_results])
-            print(f"📖 Wikipedia: {len(wiki_context)} chars")
-            
-            system_prompt = """READ THE WIKIPEDIA TEXT BELOW.
-EXTRACT the answer from the Wikipedia text.
-STATE the answer directly in 1-2 sentences.
-DO NOT say "I don't know".
-DO NOT mention RPC, RMI, or previous topics.
-JUST ANSWER using the Wikipedia text."""
-            
-            user_prompt = f"""WIKIPEDIA INFORMATION:
-{wiki_context[:1200]}
-
-QUESTION: {user_message}
-
-ANSWER (use Wikipedia info above):"""
-            max_tokens = 200
-            temperature = 0.1
+            user_prompt = f"""SEARCH RESULTS FROM {search_source.upper()}:\n{search_context[:1200]}\n\nQUESTION: {user_message}\n\nAnswer based on these search results:"""
+            max_tokens = 200; temperature = 0.1
             
         else:
             system_prompt = """Smart AI assistant. Answer naturally using your knowledge.
 3-5 sentences for explanations, 2-3 for definitions."""
             user_prompt = f"Question: {user_message}\n\nNatural answer:"
-            max_tokens = 300
-            temperature = 0.7
+            max_tokens = 300; temperature = 0.7
         
         # ========== GET RESPONSE ==========
         response_text = None
@@ -596,8 +577,7 @@ ANSWER (use Wikipedia info above):"""
             for model in models_to_try:
                 try:
                     response_text = groq_chat_completion(
-                        messages=[{"role": "system", "content": system_prompt}, 
-                                 {"role": "user", "content": user_prompt}],
+                        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
                         model=model, max_tokens=max_tokens, temperature=temperature)
                     break
                 except: continue
@@ -606,8 +586,7 @@ ANSWER (use Wikipedia info above):"""
                 try:
                     completion = groq_client.chat.completions.create(
                         model=model,
-                        messages=[{"role": "system", "content": system_prompt}, 
-                                 {"role": "user", "content": user_prompt}],
+                        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
                         temperature=temperature, max_tokens=max_tokens)
                     response_text = completion.choices[0].message.content
                     break
@@ -618,41 +597,24 @@ ANSWER (use Wikipedia info above):"""
             response_text = re.sub(r'\*{1,3}', '', response_text)
             response_text = re.sub(r'#{1,4}\s*', '', response_text)
             
-            # FORCE online content if AI refuses
-            if (news_results or wiki_results) and ('not aware' in response_text.lower() or "don't know" in response_text.lower() or 'not related' in response_text.lower() or 'rpc' in response_text.lower() or 'rmi' in response_text.lower() or 'course material' in response_text.lower()):
-                source = news_results if news_results else wiki_results
-                first_snippet = source[0]['snippet'][:300]
-                response_text = first_snippet
-                print("⚠️ AI refused - using online source directly")
+            if search_results and ('not aware' in response_text.lower() or "don't know" in response_text.lower() or 'not related' in response_text.lower() or 'rpc' in response_text.lower() or 'rmi' in response_text.lower() or 'course material' in response_text.lower()):
+                response_text = search_results[0]['snippet'][:300]
+                print("⚠️ AI refused - using search results directly")
             
             bad_phrases = [
-                r"(?i).*study notes.*?\.\s*",
-                r"(?i).*the (documents?|files?|PDFs?|notes).*?\.\s*",
-                r"(?i).*course material.*?\.\s*",
-                r"(?i).*according to.*?\.\s*",
-                r"(?i).*based on.*?\.\s*",
-                r"(?i)that'?s not related.*?\.\s*",
-                r"(?i)would you like to go back.*?\?\s*",
-                r"(?i)remote procedure call.*?[.!]\s*",
+                r"(?i).*study notes.*?\.\s*", r"(?i).*the (documents?|files?|PDFs?|notes).*?\.\s*",
+                r"(?i).*course material.*?\.\s*", r"(?i).*according to.*?\.\s*", r"(?i).*based on.*?\.\s*",
+                r"(?i)that'?s not related.*?\.\s*", r"(?i)would you like to go back.*?\?\s*", r"(?i)remote procedure call.*?[.!]\s*",
             ]
-            for phrase in bad_phrases:
-                response_text = re.sub(phrase, '', response_text)
+            for phrase in bad_phrases: response_text = re.sub(phrase, '', response_text)
             response_text = response_text.strip()
             
-            if is_greeting and len(response_text) > 80:
-                response_text = "Hey there! 👋 How can I help you today?"
-            if is_short_ack and len(response_text) > 60:
-                response_text = "Is there anything else I can help with? 😊"
-            if is_thanks and len(response_text) > 40:
-                response_text = "You're welcome! 😊"
-            if not response_text or len(response_text) < 2:
-                response_text = "How can I help you today?"
+            if is_greeting and len(response_text) > 80: response_text = "Hey there! 👋 How can I help you today?"
+            if is_short_ack and len(response_text) > 60: response_text = "Is there anything else I can help with? 😊"
+            if is_thanks and len(response_text) > 40: response_text = "You're welcome! 😊"
+            if not response_text or len(response_text) < 2: response_text = "How can I help you today?"
             
-            return jsonify({
-                'response': response_text,
-                'sources': [],
-                'mode': 'news' if news_results else ('wiki' if wiki_results else ('study' if found_in_docs else 'general'))
-            })
+            return jsonify({'response': response_text, 'sources': [], 'mode': search_source if search_results else ('study' if found_in_docs else 'general')})
         else:
             return jsonify({'response': "I'm having trouble. Please try again!"}), 500
             
@@ -667,12 +629,9 @@ def check_status():
         try: doc_count = qdrant_client.get_collection("university_notes").points_count
         except: pass
     return jsonify({
-        'status': 'online',
-        'documents_available': doc_count > 0,
-        'document_count': doc_count,
-        'api_connected': groq_connected,
-        'qdrant_connected': qdrant_client is not None,
-        'knowledge_source': 'Documents + Google News + Wikipedia (All Free)'
+        'status': 'online', 'documents_available': doc_count > 0, 'document_count': doc_count,
+        'api_connected': groq_connected, 'qdrant_connected': qdrant_client is not None,
+        'knowledge_source': 'Documents + DDG + Google News + Wikipedia (All Free Forever)'
     })
 
 @app.route('/admin/documents', methods=['GET'])
@@ -681,19 +640,15 @@ def get_documents():
     docs = []
     if qdrant_client:
         try:
-            scroll_results = qdrant_client.scroll(
-                collection_name="university_notes", limit=100, with_payload=True, with_vectors=False)
+            scroll_results = qdrant_client.scroll(collection_name="university_notes", limit=100, with_payload=True, with_vectors=False)
             seen = set()
             for point in scroll_results[0]:
                 filename = point.payload.get('filename', '')
                 if filename and filename not in seen:
                     seen.add(filename)
-                    docs.append({
-                        'filename': filename, 'file_type': point.payload.get('file_type', ''),
-                        'category': point.payload.get('category', ''),
-                        'upload_date': point.payload.get('upload_date', ''),
-                        'doc_id': point.id, 'chunks': 1
-                    })
+                    docs.append({'filename': filename, 'file_type': point.payload.get('file_type', ''),
+                                'category': point.payload.get('category', ''), 'upload_date': point.payload.get('upload_date', ''),
+                                'doc_id': point.id, 'chunks': 1})
         except: pass
     return jsonify({'success': True, 'documents': docs})
 
@@ -701,8 +656,7 @@ def get_documents():
 @admin_required
 def delete_document(doc_id):
     try:
-        if qdrant_client:
-            qdrant_client.delete(collection_name="university_notes", points_selector=[doc_id])
+        if qdrant_client: qdrant_client.delete(collection_name="university_notes", points_selector=[doc_id])
         return jsonify({'success': True})
     except: return jsonify({'success': False}), 500
 
@@ -724,7 +678,7 @@ if __name__ == '__main__':
     print("\n" + "="*60)
     print("🚀 SERVER STARTED")
     print(f"📚 Documents: {doc_count}")
-    print(f"📖 Knowledge: Documents + Google News + Wikipedia (All Free)")
+    print(f"📖 Knowledge: DDG + Google News + Wikipedia (All Free Forever)")
     print(f"🌐 http://0.0.0.0:{port}/")
     print("="*60 + "\n")
     app.run(host='0.0.0.0', port=port, debug=False)
