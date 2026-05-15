@@ -24,6 +24,7 @@ import re
 import uuid
 import requests
 import urllib.parse
+from collections import Counter
 
 load_dotenv()
 
@@ -239,23 +240,19 @@ def search_all_sources(query):
     clean_query = clean_query.replace('srilanka', 'sri lanka')
     clean_query = clean_query.replace('tamilnadu', 'tamil nadu')
     
-    # Add "current" for political queries
     political_words = ['president', 'minister', 'cm', 'chief minister', 'governor', 'prime minister', 'leader']
     if any(w in clean_query for w in political_words):
         if 'current' not in clean_query and '2026' not in clean_query and '2025' not in clean_query:
             clean_query = 'current ' + clean_query
     
-    # Source 1: DuckDuckGo Instant Answers
     print("🔍 Source 1: DuckDuckGo Instant Answers...")
     results = _ddg_instant(clean_query)
     if results: return results, 'ddg'
     
-    # Source 2: Google News RSS
     print("🔍 Source 2: Google News RSS...")
     results = _google_news_rss(clean_query)
     if results: return results, 'news'
     
-    # Source 3: Wikipedia
     print("🔍 Source 3: Wikipedia...")
     results = _wikipedia_search(clean_query)
     if results: return results, 'wiki'
@@ -263,24 +260,19 @@ def search_all_sources(query):
     return None, None
 
 def _ddg_instant(query):
-    """DuckDuckGo Instant Answers - free, no API key"""
     try:
         url = "https://api.duckduckgo.com/"
         params = {"q": query, "format": "json", "no_html": 1, "skip_disambig": 1}
         response = requests.get(url, params=params, timeout=10)
         data = response.json()
         results = []
-        
         if data.get("AbstractText") and len(data.get("AbstractText", "")) > 20:
             results.append({"title": data.get("AbstractSource", "DuckDuckGo"), "snippet": data.get("AbstractText", ""), "link": data.get("AbstractURL", "")})
-        
         if data.get("Answer") and len(data.get("Answer", "")) > 10:
             results.append({"title": "📌 Direct Answer", "snippet": data.get("Answer", ""), "link": ""})
-        
         for topic in data.get("RelatedTopics", [])[:3]:
             if isinstance(topic, dict) and topic.get("Text"):
                 results.append({"title": "Related", "snippet": topic.get("Text", ""), "link": topic.get("FirstURL", "")})
-        
         if results:
             print(f"✅ DDG: {len(results)} answers")
             return results
@@ -290,7 +282,6 @@ def _ddg_instant(query):
         return None
 
 def _google_news_rss(query):
-    """Google News RSS - free, real-time"""
     try:
         encoded_query = urllib.parse.quote(query)
         url = f"https://news.google.com/rss/search?q={encoded_query}&hl=en&gl=US&ceid=US:en"
@@ -312,7 +303,6 @@ def _google_news_rss(query):
         return None
 
 def _wikipedia_search(query):
-    """Wikipedia - free, no API key"""
     try:
         search_url = f"https://en.wikipedia.org/w/api.php?action=opensearch&search={urllib.parse.quote(query)}&limit=2&format=json"
         response = requests.get(search_url, headers={"User-Agent": "AI-Chatbot/1.0"}, timeout=10)
@@ -338,8 +328,52 @@ def _wikipedia_search(query):
         print(f"⚠️ Wikipedia error: {e}")
         return None
 
+# ========== SMART ANSWER EXTRACTION ==========
+
+def extract_answer_from_search(search_results, question):
+    """Extract the most likely answer from search results"""
+    if not search_results:
+        return None
+    
+    all_text = " ".join([r.get('snippet', '') + " " + r.get('title', '') for r in search_results])
+    
+    # Pattern 1: "is [Full Name]" - best for "who is X" questions
+    is_pattern = re.findall(r'\b(?:is|was|named|called)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,4})', all_text)
+    if is_pattern:
+        return is_pattern[0]
+    
+    # Pattern 2: "[Name] is the current [role]"
+    current_pattern = re.findall(r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,4})\s+(?:is|was|became)\s+(?:the\s+)?(?:current\s+)?(?:president|prime minister|chief minister|cm|governor|leader)', all_text)
+    if current_pattern:
+        return current_pattern[0]
+    
+    # Pattern 3: Most frequent proper noun
+    proper_nouns = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}\b', all_text)
+    if proper_nouns:
+        # Filter out common false positives
+        filtered = [n for n in proper_nouns if n.lower() not in ['google news', 'related information', 'direct answer', 'duckduckgo', 'wikipedia', 'source']]
+        if filtered:
+            most_common = Counter(filtered).most_common(1)
+            if most_common:
+                return most_common[0][0]
+    
+    return None
+
+def format_direct_answer(question, search_results):
+    """Format a direct answer from search results without AI"""
+    extracted = extract_answer_from_search(search_results, question)
+    if extracted and len(extracted) > 3:
+        return extracted
+    
+    for r in search_results:
+        snippet = r.get('snippet', '')
+        if len(snippet) > 50:
+            sentences = re.split(r'(?<=[.!?])\s+', snippet)
+            return ' '.join(sentences[:2])
+    
+    return None
+
 def is_document_relevant(user_message, doc_context):
-    """Check if documents are relevant to the question"""
     user_lower = user_message.lower()
     skip_docs_keywords = [
         'president', 'minister', 'election', 'government', 'country', 'capital', 
@@ -521,24 +555,16 @@ def chat():
         # ========== BUILD PROMPT ==========
         
         if is_greeting:
-            system_prompt = "Friendly AI. SHORT greeting (1 sentence)."
-            user_prompt = f"User: {user_message}\n\nShort greeting:"
-            max_tokens = 50; temperature = 0.7
+            response_text = "Hey there! 👋 How can I help you today?"
             
         elif is_short_ack:
-            system_prompt = "Friendly AI. Short acknowledgment (1 sentence)."
-            user_prompt = f"User: {user_message}\n\nShort response:"
-            max_tokens = 40; temperature = 0.7
+            response_text = "Is there anything else I can help with? 😊"
             
         elif is_thanks:
-            system_prompt = "Respond to thanks warmly. 1 sentence."
-            user_prompt = f"User: {user_message}\n\nResponse:"
-            max_tokens = 30; temperature = 0.7
+            response_text = "You're welcome! 😊"
             
         elif is_about_ai:
-            system_prompt = "AI assistant. Be honest about being AI. 2 friendly sentences."
-            user_prompt = f"User: {user_message}\n\nFriendly response:"
-            max_tokens = 80; temperature = 0.7
+            response_text = "I'm an AI assistant created to help with your studies! I'm here to answer questions about your course materials and help you learn. 😊"
             
         elif found_in_docs:
             system_prompt = """Helpful AI tutor. Answer from course material.
@@ -547,76 +573,111 @@ Answer naturally. 3-5 sentences max."""
             user_prompt = f"""Course material (silent):\n{doc_context[:800]}\n\nQuestion: {user_message}\n\nNatural answer:"""
             max_tokens = 250; temperature = 0.7
             
+            response_text = None
+            models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
+            if groq_client == "http_fallback":
+                for model in models_to_try:
+                    try:
+                        response_text = groq_chat_completion(
+                            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                            model=model, max_tokens=max_tokens, temperature=temperature)
+                        break
+                    except: continue
+            else:
+                for model in models_to_try:
+                    try:
+                        completion = groq_client.chat.completions.create(
+                            model=model,
+                            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                            temperature=temperature, max_tokens=max_tokens)
+                        response_text = completion.choices[0].message.content
+                        break
+                    except: continue
+            
+            if not response_text:
+                response_text = "I couldn't find a specific answer in your course materials."
+            
         elif search_results:
-            search_context = "\n\n".join([f"📰 {r['title']}\n{r['snippet']}" for r in search_results])
-            print(f"📰 Search context ({search_source}): {len(search_context)} chars")
-            print(f"   Preview: {search_context[:200]}...")
+            # Try direct extraction first (bypass AI)
+            direct_answer = format_direct_answer(user_message, search_results)
             
-            system_prompt = """You are a helpful AI assistant. 
-READ the search results below carefully.
-EXTRACT the answer to the user's question from these results.
-STATE the answer in 1-2 sentences.
-DO NOT use your training data - use ONLY the search results.
-DO NOT say "I don't know" if the results contain information.
-If the results mention a name for the role asked about, that IS the answer."""
-            
-            user_prompt = f"""SEARCH RESULTS FROM {search_source.upper()}:\n{search_context[:1200]}\n\nQUESTION: {user_message}\n\nAnswer based on these search results:"""
-            max_tokens = 200; temperature = 0.1
+            if direct_answer and len(direct_answer) > 5:
+                print(f"✅ Direct answer extracted: {direct_answer[:100]}")
+                response_text = direct_answer
+            else:
+                # Fallback to AI
+                search_context = "\n\n".join([f"📰 {r['title']}\n{r['snippet']}" for r in search_results])
+                print(f"📰 Search context ({search_source}): {len(search_context)} chars")
+                
+                system_prompt = """READ THE SEARCH RESULTS. EXTRACT the EXACT answer. State ONLY the answer in 1 sentence. DO NOT guess. DO NOT make up names."""
+                user_prompt = f"""SEARCH RESULTS:\n{search_context[:1200]}\n\nQUESTION: {user_message}\n\nEXACT answer from results:"""
+                max_tokens = 100; temperature = 0
+                
+                response_text = None
+                models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
+                if groq_client == "http_fallback":
+                    for model in models_to_try:
+                        try:
+                            response_text = groq_chat_completion(
+                                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                                model=model, max_tokens=max_tokens, temperature=temperature)
+                            break
+                        except: continue
+                else:
+                    for model in models_to_try:
+                        try:
+                            completion = groq_client.chat.completions.create(
+                                model=model,
+                                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                                temperature=temperature, max_tokens=max_tokens)
+                            response_text = completion.choices[0].message.content
+                            break
+                        except: continue
+                
+                # If AI still fails, use raw snippet
+                if not response_text or 'not aware' in response_text.lower() or "don't know" in response_text.lower():
+                    response_text = search_results[0]['snippet'][:300]
+                    print("⚠️ Using raw search snippet")
             
         else:
-            system_prompt = """Smart AI assistant. Answer naturally using your knowledge.
-3-5 sentences for explanations, 2-3 for definitions."""
+            system_prompt = """Smart AI assistant. Answer naturally using your knowledge. 3-5 sentences for explanations, 2-3 for definitions."""
             user_prompt = f"Question: {user_message}\n\nNatural answer:"
             max_tokens = 300; temperature = 0.7
+            
+            response_text = None
+            models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
+            if groq_client == "http_fallback":
+                for model in models_to_try:
+                    try:
+                        response_text = groq_chat_completion(
+                            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                            model=model, max_tokens=max_tokens, temperature=temperature)
+                        break
+                    except: continue
+            else:
+                for model in models_to_try:
+                    try:
+                        completion = groq_client.chat.completions.create(
+                            model=model,
+                            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                            temperature=temperature, max_tokens=max_tokens)
+                        response_text = completion.choices[0].message.content
+                        break
+                    except: continue
+            
+            if not response_text:
+                response_text = "I'm not sure about that. Could you try rephrasing the question?"
         
-        # ========== GET RESPONSE ==========
-        response_text = None
-        models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
-        
-        if groq_client == "http_fallback":
-            for model in models_to_try:
-                try:
-                    response_text = groq_chat_completion(
-                        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                        model=model, max_tokens=max_tokens, temperature=temperature)
-                    break
-                except: continue
-        else:
-            for model in models_to_try:
-                try:
-                    completion = groq_client.chat.completions.create(
-                        model=model,
-                        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                        temperature=temperature, max_tokens=max_tokens)
-                    response_text = completion.choices[0].message.content
-                    break
-                except: continue
-        
-        # ========== CLEAN ==========
+        # ========== FINAL CLEAN ==========
         if response_text:
             response_text = re.sub(r'\*{1,3}', '', response_text)
             response_text = re.sub(r'#{1,4}\s*', '', response_text)
-            
-            if search_results and ('not aware' in response_text.lower() or "don't know" in response_text.lower() or 'not related' in response_text.lower() or 'rpc' in response_text.lower() or 'rmi' in response_text.lower() or 'course material' in response_text.lower()):
-                response_text = search_results[0]['snippet'][:300]
-                print("⚠️ AI refused - using search results directly")
-            
-            bad_phrases = [
-                r"(?i).*study notes.*?\.\s*", r"(?i).*the (documents?|files?|PDFs?|notes).*?\.\s*",
-                r"(?i).*course material.*?\.\s*", r"(?i).*according to.*?\.\s*", r"(?i).*based on.*?\.\s*",
-                r"(?i)that'?s not related.*?\.\s*", r"(?i)would you like to go back.*?\?\s*", r"(?i)remote procedure call.*?[.!]\s*",
-            ]
-            for phrase in bad_phrases: response_text = re.sub(phrase, '', response_text)
             response_text = response_text.strip()
-            
-            if is_greeting and len(response_text) > 80: response_text = "Hey there! 👋 How can I help you today?"
-            if is_short_ack and len(response_text) > 60: response_text = "Is there anything else I can help with? 😊"
-            if is_thanks and len(response_text) > 40: response_text = "You're welcome! 😊"
-            if not response_text or len(response_text) < 2: response_text = "How can I help you today?"
-            
-            return jsonify({'response': response_text, 'sources': [], 'mode': search_source if search_results else ('study' if found_in_docs else 'general')})
+            if not response_text: response_text = "How can I help you today?"
         else:
-            return jsonify({'response': "I'm having trouble. Please try again!"}), 500
+            response_text = "I'm having trouble. Please try again!"
+        
+        return jsonify({'response': response_text, 'sources': [], 'mode': search_source if search_results else ('study' if found_in_docs else 'general')})
             
     except Exception as e:
         print(f"Chat error: {e}")
@@ -678,7 +739,7 @@ if __name__ == '__main__':
     print("\n" + "="*60)
     print("🚀 SERVER STARTED")
     print(f"📚 Documents: {doc_count}")
-    print(f"📖 Knowledge: DDG + Google News + Wikipedia (All Free Forever)")
+    print(f"📖 Knowledge: DDG + Google News + Wikipedia + Smart Extraction (All Free Forever)")
     print(f"🌐 http://0.0.0.0:{port}/")
     print("="*60 + "\n")
     app.run(host='0.0.0.0', port=port, debug=False)
