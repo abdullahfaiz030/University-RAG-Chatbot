@@ -258,7 +258,6 @@ def upload_to_hf_dataset(file_path, filename):
 
 def search_web(query):
     """Search the web using DDGS - completely free, no API key needed"""
-    # Try new package first
     try:
         from ddgs import DDGS
         results = []
@@ -278,7 +277,6 @@ def search_web(query):
     except Exception as e:
         print(f"⚠️ DDGS error: {e}")
     
-    # Fallback to old package
     try:
         from duckduckgo_search import DDGS
         results = []
@@ -306,7 +304,6 @@ def needs_real_time_info(user_message):
     user_lower = user_message.lower()
     user_lower = user_lower.replace('curretn', 'current').replace('presidant', 'president')
     
-    # Person/role indicators ALWAYS trigger web search
     person_roles = ['president', 'prime minister', 'ceo', 'leader', 'king', 'queen', 
                     'minister', 'governor', 'mayor', 'chancellor', 'chairman', 'director']
     if any(role in user_lower for role in person_roles):
@@ -438,6 +435,7 @@ def chat():
             return jsonify({'response': 'AI service not available.'}), 500
         
         user_lower = user_message.lower().strip()
+        msg_len = len(user_lower.split())
         
         # ========== CLASSIFICATION ==========
         
@@ -446,10 +444,18 @@ def chat():
                          'do you', 'is the', 'are the', 'is there', 'are there']
         is_question = any(user_lower.startswith(q) for q in question_words) or user_lower.endswith('?')
         
+        # Greetings
         greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening', 
                     'sup', 'yo', 'hola', 'hii', 'heyy', 'helloo', 'morning', 'evening', 'good day']
-        is_greeting = any(user_lower == g or user_lower.startswith(g + ' ') for g in greetings) and len(user_lower.split()) <= 3 and not is_question
+        is_greeting = any(user_lower == g or user_lower.startswith(g + ' ') for g in greetings) and msg_len <= 3 and not is_question
         
+        # Short acknowledgments (FIX: prevents document search for "ok", "fine", etc.)
+        short_acks = ['ok', 'okay', 'k', 'fine', 'sure', 'yes', 'yeah', 'yep', 'no', 'nope', 
+                     'right', 'got it', 'gotcha', 'understood', 'alright', 'cool', 'nice',
+                     'good', 'great', 'hmm', 'hm', 'ah', 'oh', 'i see', 'ic']
+        is_short_ack = user_lower in short_acks or (msg_len == 1 and not is_question)
+        
+        # Identity/AI questions
         identity_q = ['who are you', 'what are you', 'your name', 'about yourself', 
                      'introduce yourself', 'tell me about yourself', 'who created you', 
                      'are you ai', 'are you human', 'are you real']
@@ -463,15 +469,18 @@ def chat():
         is_user_personal = any(q in user_lower for q in user_personal_q)
         is_about_ai = is_identity or is_location
         
+        # Thanks
         thanks_words = ['thank', 'thanks', 'thx', 'appreciate']
-        is_thanks = any(t in user_lower for t in thanks_words) and len(user_lower.split()) <= 4 and not is_question
+        is_thanks = any(t in user_lower for t in thanks_words) and msg_len <= 4 and not is_question
         
-        # ========== CHECK REAL-TIME ==========
+        # Check real-time
         needs_realtime = needs_real_time_info(user_lower)
-        is_casual = is_greeting or is_thanks or is_about_ai or is_user_personal
+        
+        # is_casual = skip document search entirely
+        is_casual = is_greeting or is_thanks or is_about_ai or is_user_personal or is_short_ack
         
         print(f"📝 {user_message[:80]}")
-        print(f"   needs_realtime={needs_realtime}, is_casual={is_casual}")
+        print(f"   is_casual={is_casual}, needs_realtime={needs_realtime}, is_question={is_question}")
         
         # ========== WEB SEARCH ==========
         web_results = None
@@ -484,7 +493,7 @@ def chat():
             else:
                 print("⚠️ No web results")
         
-        # ========== DOCUMENT SEARCH (only if no web results) ==========
+        # ========== DOCUMENT SEARCH (only if NOT casual AND no web results) ==========
         doc_context = ""
         sources = []
         
@@ -513,6 +522,12 @@ def chat():
             system_prompt = "You are a friendly AI assistant. Respond with a SHORT, warm greeting. 1 sentence only."
             user_prompt = f"User: {user_message}\n\nShort greeting:"
             max_tokens = 50
+            
+        elif is_short_ack:
+            # Short acknowledgment - just acknowledge briefly
+            system_prompt = "You are a friendly AI assistant. The user sent a short acknowledgment. Respond warmly in 1 VERY short sentence. Ask if they need help."
+            user_prompt = f"User: {user_message}\n\nShort friendly response:"
+            max_tokens = 40
             
         elif is_identity:
             system_prompt = "You are an AI assistant. Tell them you're an AI created to help people learn. No physical form. 2-3 friendly sentences."
@@ -628,6 +643,8 @@ If asked about current events or people, suggest checking recent sources."""
             
             if is_greeting and (len(response_text) < 3 or len(response_text) > 80):
                 response_text = "Hey there! 👋 How can I help you today?"
+            if is_short_ack and len(response_text) > 60:
+                response_text = "Is there anything else I can help you with? 😊"
             if is_about_ai and len(response_text) < 10:
                 response_text = "I'm an AI assistant! I exist in the cloud to help you learn. 😊"
             if is_thanks and len(response_text) > 40:
