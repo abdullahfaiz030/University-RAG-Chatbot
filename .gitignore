@@ -5,3 +5,7 @@ __pycache__/
 test*.py 
 .env 
 New Text Document.txt 
+New folder/ 
+imp/ 
+*.txt 
+!requirements.txt 
