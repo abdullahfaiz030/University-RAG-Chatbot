@@ -254,12 +254,12 @@ def upload_to_hf_dataset(file_path, filename):
         print(f"⚠️ HF backup failed: {e}")
         return False
 
-# ========== DUCKDUCKGO WEB SEARCH ==========
+# ========== DDGS WEB SEARCH (FREE & UNLIMITED) ==========
 
 def search_web(query):
-    """Search the web using DuckDuckGo - completely free, no API key needed"""
+    """Search the web using DDGS - completely free, no API key needed"""
     try:
-        from duckduckgo_search import DDGS
+        from ddgs import DDGS
         
         results = []
         with DDGS() as ddgs:
@@ -271,13 +271,33 @@ def search_web(query):
                     "link": r.get("href", "")
                 })
         
+        if results:
+            print(f"✅ DDGS: {len(results)} results for '{query[:50]}'")
+        else:
+            print(f"⚠️ DDGS: No results for '{query[:50]}'")
         return results if results else None
+        
     except ImportError:
-        print("⚠️ duckduckgo-search not installed.")
-        return None
+        print("❌ ddgs not installed! Trying duckduckgo_search...")
+        # Fallback to old package name
+        try:
+            from duckduckgo_search import DDGS
+            results = []
+            with DDGS() as ddgs:
+                search_results = list(ddgs.text(query, max_results=3))
+                for r in search_results:
+                    results.append({
+                        "title": r.get("title", ""),
+                        "snippet": r.get("body", ""),
+                        "link": r.get("href", "")
+                    })
+            return results if results else None
+        except:
+            return None
     except Exception as e:
-        print(f"DuckDuckGo search error: {e}")
+        print(f"❌ DDGS error: {e}")
         return None
+
 
 def needs_real_time_info(user_message):
     """Detect if the question needs real-time/current information"""
@@ -457,12 +477,12 @@ def chat():
         # ========== WEB SEARCH (BEFORE DOCUMENTS) ==========
         web_results = None
         if needs_realtime and not is_casual:
-            print(f"🔍 Web search: {user_message[:60]}")
+            print(f"🔍 Web search triggered for: {user_message[:60]}")
             web_results = search_web(user_message)
             if web_results:
                 print(f"✅ {len(web_results)} results")
             else:
-                print("⚠️ No web results")
+                print("⚠️ No web results from search")
         
         # ========== SEARCH DOCUMENTS (only if no web results) ==========
         doc_context = ""
@@ -638,7 +658,7 @@ def check_status():
         'document_count': doc_count,
         'api_connected': groq_connected,
         'qdrant_connected': qdrant_client is not None,
-        'web_search': 'DuckDuckGo (Free & Unlimited)'
+        'web_search': 'DDGS (Free & Unlimited)'
     })
 
 @app.route('/admin/documents', methods=['GET'])
@@ -701,7 +721,7 @@ if __name__ == '__main__':
     print("\n" + "="*60)
     print("🚀 SERVER STARTED")
     print(f"📚 Documents: {doc_count}")
-    print(f"🔍 Web Search: DuckDuckGo (Free & Unlimited)")
+    print(f"🔍 Web Search: DDGS (Free & Unlimited)")
     print(f"🌐 http://0.0.0.0:{port}/")
     print("="*60 + "\n")
     app.run(host='0.0.0.0', port=port, debug=False)
