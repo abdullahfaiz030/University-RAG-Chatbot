@@ -254,13 +254,13 @@ def upload_to_hf_dataset(file_path, filename):
         print(f"⚠️ HF backup failed: {e}")
         return False
 
-# ========== DDGS WEB SEARCH (FREE & UNLIMITED) ==========
+# ========== DDGS WEB SEARCH ==========
 
 def search_web(query):
     """Search the web using DDGS - completely free, no API key needed"""
+    # Try new package first
     try:
         from ddgs import DDGS
-        
         results = []
         with DDGS() as ddgs:
             search_results = list(ddgs.text(query, max_results=3))
@@ -270,43 +270,43 @@ def search_web(query):
                     "snippet": r.get("body", ""),
                     "link": r.get("href", "")
                 })
-        
         if results:
-            print(f"✅ DDGS: {len(results)} results for '{query[:50]}'")
-        else:
-            print(f"⚠️ DDGS: No results for '{query[:50]}'")
-        return results if results else None
-        
+            print(f"✅ DDGS: {len(results)} results")
+            return results
     except ImportError:
-        print("❌ ddgs not installed! Trying duckduckgo_search...")
-        # Fallback to old package name
-        try:
-            from duckduckgo_search import DDGS
-            results = []
-            with DDGS() as ddgs:
-                search_results = list(ddgs.text(query, max_results=3))
-                for r in search_results:
-                    results.append({
-                        "title": r.get("title", ""),
-                        "snippet": r.get("body", ""),
-                        "link": r.get("href", "")
-                    })
-            return results if results else None
-        except:
-            return None
+        pass
     except Exception as e:
-        print(f"❌ DDGS error: {e}")
-        return None
+        print(f"⚠️ DDGS error: {e}")
+    
+    # Fallback to old package
+    try:
+        from duckduckgo_search import DDGS
+        results = []
+        with DDGS() as ddgs:
+            search_results = list(ddgs.text(query, max_results=3))
+            for r in search_results:
+                results.append({
+                    "title": r.get("title", ""),
+                    "snippet": r.get("body", ""),
+                    "link": r.get("href", "")
+                })
+        if results:
+            print(f"✅ duckduckgo_search: {len(results)} results")
+            return results
+    except ImportError:
+        print("❌ No search library installed!")
+    except Exception as e:
+        print(f"⚠️ duckduckgo_search error: {e}")
+    
+    return None
 
 
 def needs_real_time_info(user_message):
     """Detect if the question needs real-time/current information"""
     user_lower = user_message.lower()
-    
-    # Fix common typos
     user_lower = user_lower.replace('curretn', 'current').replace('presidant', 'president')
     
-    # Person/role indicators (ALWAYS trigger web search)
+    # Person/role indicators ALWAYS trigger web search
     person_roles = ['president', 'prime minister', 'ceo', 'leader', 'king', 'queen', 
                     'minister', 'governor', 'mayor', 'chancellor', 'chairman', 'director']
     if any(role in user_lower for role in person_roles):
@@ -439,7 +439,7 @@ def chat():
         
         user_lower = user_message.lower().strip()
         
-        # ========== SMARTER CLASSIFICATION ==========
+        # ========== CLASSIFICATION ==========
         
         question_words = ['what', 'who', 'where', 'when', 'why', 'how', 'which', 'whose', 'whom', 
                          'can you', 'could you', 'tell me', 'explain', 'define', 'describe',
@@ -466,25 +466,25 @@ def chat():
         thanks_words = ['thank', 'thanks', 'thx', 'appreciate']
         is_thanks = any(t in user_lower for t in thanks_words) and len(user_lower.split()) <= 4 and not is_question
         
-        # ========== CHECK REAL-TIME FIRST ==========
+        # ========== CHECK REAL-TIME ==========
         needs_realtime = needs_real_time_info(user_lower)
-        
         is_casual = is_greeting or is_thanks or is_about_ai or is_user_personal
         
         print(f"📝 {user_message[:80]}")
-        print(f"   needs_realtime={needs_realtime}, is_casual={is_casual}, is_question={is_question}")
+        print(f"   needs_realtime={needs_realtime}, is_casual={is_casual}")
         
-        # ========== WEB SEARCH (BEFORE DOCUMENTS) ==========
+        # ========== WEB SEARCH ==========
         web_results = None
         if needs_realtime and not is_casual:
-            print(f"🔍 Web search triggered for: {user_message[:60]}")
+            print(f"🔍 Web search: {user_message[:60]}")
             web_results = search_web(user_message)
             if web_results:
                 print(f"✅ {len(web_results)} results")
+                print(f"   First: {web_results[0].get('title', 'N/A')[:80]}")
             else:
-                print("⚠️ No web results from search")
+                print("⚠️ No web results")
         
-        # ========== SEARCH DOCUMENTS (only if no web results) ==========
+        # ========== DOCUMENT SEARCH (only if no web results) ==========
         doc_context = ""
         sources = []
         
@@ -539,24 +539,28 @@ def chat():
             for r in web_results:
                 web_context += f"📰 {r.get('title', '')}: {r.get('snippet', '')}\n\n"
             
-            system_prompt = """You are a knowledgeable AI assistant with access to real-time web search results.
-
-CRITICAL RULES:
-1. Answer STRICTLY based on the real-time web search results below.
-2. Give the most current, accurate answer available.
-3. State facts directly from the search results.
-4. NEVER use outdated training data if the web results have current info.
-5. NEVER say "according to the search" - just answer naturally.
-6. Be conversational. 2-4 sentences."""
+            print(f"📰 Web context: {len(web_context)} chars")
             
-            user_prompt = f"""Real-time web search results for: {user_message}
+            system_prompt = """You are answering a question using real-time web search results.
+
+CRITICAL INSTRUCTIONS:
+1. READ the web search results below carefully.
+2. The answer to the user's question IS in these results.
+3. EXTRACT the answer from the results and state it directly.
+4. DO NOT say "I don't know" if the results contain information.
+5. DO NOT mention documents, notes, or previous conversations.
+6. DO NOT say "That's not related to the topic."
+7. Give a direct, clear answer based on the search results.
+8. If the results mention a person's name as president/leader, that IS the answer."""
+            
+            user_prompt = f"""WEB SEARCH RESULTS FOR: {user_message}
 
 {web_context}
 
-Question: {user_message}
+Based SOLELY on these search results, answer: {user_message}
 
-Give the current, accurate answer based on these real-time results. DO NOT use outdated knowledge:"""
-            max_tokens = 250
+State the answer directly from the results above:"""
+            max_tokens = 200
             
         elif doc_context:
             system_prompt = """You are a helpful AI tutor. Answer naturally.
