@@ -254,7 +254,7 @@ def upload_to_hf_dataset(file_path, filename):
         print(f"⚠️ HF backup failed: {e}")
         return False
 
-# ========== DUCKDUCKGO WEB SEARCH (FREE & UNLIMITED) ==========
+# ========== DUCKDUCKGO WEB SEARCH ==========
 
 def search_web(query):
     """Search the web using DuckDuckGo - completely free, no API key needed"""
@@ -273,7 +273,7 @@ def search_web(query):
         
         return results if results else None
     except ImportError:
-        print("⚠️ duckduckgo-search not installed. Run: pip install duckduckgo-search")
+        print("⚠️ duckduckgo-search not installed.")
         return None
     except Exception as e:
         print(f"DuckDuckGo search error: {e}")
@@ -283,12 +283,21 @@ def needs_real_time_info(user_message):
     """Detect if the question needs real-time/current information"""
     user_lower = user_message.lower()
     
+    # Fix common typos
+    user_lower = user_lower.replace('curretn', 'current').replace('presidant', 'president')
+    
+    # Person/role indicators (ALWAYS trigger web search)
+    person_roles = ['president', 'prime minister', 'ceo', 'leader', 'king', 'queen', 
+                    'minister', 'governor', 'mayor', 'chancellor', 'chairman', 'director']
+    if any(role in user_lower for role in person_roles):
+        return True
+    
     real_time_indicators = [
-        'current', 'latest', 'today', 'now', '2024', '2025', '2026',
-        'president', 'prime minister', 'election', 'news', 'recent',
-        'weather', 'stock', 'price', 'score', 'live', 'update',
-        'who is the', 'who is current', 'currently', 'right now',
-        'what is the latest', 'what happened', 'breaking'
+        'current', 'latest', 'today', 'now', '2025', '2026', '2027',
+        'election', 'news', 'recent', 'weather', 'stock', 'price', 
+        'score', 'live', 'update', 'currently', 'right now',
+        'what is the latest', 'what happened', 'breaking',
+        'who is', 'who are', 'who is the', 'who is current',
     ]
     
     return any(indicator in user_lower for indicator in real_time_indicators)
@@ -410,16 +419,24 @@ def chat():
         
         user_lower = user_message.lower().strip()
         
-        # Classification
-        question_words = ['what', 'who', 'where', 'when', 'why', 'how', 'which', 'whose', 'whom', 'can you', 'could you', 'tell me', 'explain', 'define', 'describe']
-        is_question = any(user_lower.startswith(q) for q in question_words) or user_message.strip().endswith('?')
+        # ========== SMARTER CLASSIFICATION ==========
         
-        greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening', 'sup', 'yo', 'hola', 'hii', 'heyy', 'helloo', 'morning', 'evening', 'good day']
-        is_greeting = any(user_lower == g or user_lower.startswith(g + ' ') for g in greetings) and len(user_message.split()) <= 3 and not is_question
+        question_words = ['what', 'who', 'where', 'when', 'why', 'how', 'which', 'whose', 'whom', 
+                         'can you', 'could you', 'tell me', 'explain', 'define', 'describe',
+                         'do you', 'is the', 'are the', 'is there', 'are there']
+        is_question = any(user_lower.startswith(q) for q in question_words) or user_lower.endswith('?')
         
-        identity_q = ['who are you', 'what are you', 'your name', 'about yourself', 'introduce yourself', 'tell me about yourself', 'who created you', 'are you ai', 'are you human', 'are you real']
-        location_q = ['where are you', 'where do you live', 'your country', 'which country', 'where you from', 'your location']
-        user_personal_q = ['know my name', 'do you know me', 'who am i', 'what is my name', 'remember me']
+        greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening', 
+                    'sup', 'yo', 'hola', 'hii', 'heyy', 'helloo', 'morning', 'evening', 'good day']
+        is_greeting = any(user_lower == g or user_lower.startswith(g + ' ') for g in greetings) and len(user_lower.split()) <= 3 and not is_question
+        
+        identity_q = ['who are you', 'what are you', 'your name', 'about yourself', 
+                     'introduce yourself', 'tell me about yourself', 'who created you', 
+                     'are you ai', 'are you human', 'are you real']
+        location_q = ['where are you', 'where do you live', 'your country', 
+                     'which country', 'where you from', 'your location']
+        user_personal_q = ['know my name', 'do you know me', 'who am i', 
+                          'what is my name', 'remember me']
         
         is_identity = any(q in user_lower for q in identity_q)
         is_location = any(q in user_lower for q in location_q) 
@@ -427,22 +444,27 @@ def chat():
         is_about_ai = is_identity or is_location
         
         thanks_words = ['thank', 'thanks', 'thx', 'appreciate']
-        is_thanks = any(t in user_lower for t in thanks_words) and len(user_message.split()) <= 4 and not is_question
+        is_thanks = any(t in user_lower for t in thanks_words) and len(user_lower.split()) <= 4 and not is_question
         
-        # Check if needs real-time info
-        needs_realtime = needs_real_time_info(user_message)
+        # ========== CHECK REAL-TIME FIRST ==========
+        needs_realtime = needs_real_time_info(user_lower)
         
         is_casual = is_greeting or is_thanks or is_about_ai or is_user_personal
         
-        # ========== WEB SEARCH FOR REAL-TIME INFO ==========
+        print(f"📝 {user_message[:80]}")
+        print(f"   needs_realtime={needs_realtime}, is_casual={is_casual}, is_question={is_question}")
+        
+        # ========== WEB SEARCH (BEFORE DOCUMENTS) ==========
         web_results = None
         if needs_realtime and not is_casual:
-            print(f"🔍 Searching web for: {user_message}")
+            print(f"🔍 Web search: {user_message[:60]}")
             web_results = search_web(user_message)
             if web_results:
-                print(f"✅ Found {len(web_results)} web results")
+                print(f"✅ {len(web_results)} results")
+            else:
+                print("⚠️ No web results")
         
-        # ========== SEARCH DOCUMENTS ==========
+        # ========== SEARCH DOCUMENTS (only if no web results) ==========
         doc_context = ""
         sources = []
         
@@ -473,12 +495,12 @@ def chat():
             max_tokens = 50
             
         elif is_identity:
-            system_prompt = """You are an AI assistant. Tell them: You're an AI created to help people learn. No physical form. 2-3 friendly sentences."""
+            system_prompt = "You are an AI assistant. Tell them you're an AI created to help people learn. No physical form. 2-3 friendly sentences."
             user_prompt = f"User: {user_message}\n\nFriendly AI response:"
             max_tokens = 100
             
         elif is_location:
-            system_prompt = """You are an AI assistant. Explain you don't have a physical location - you exist in the cloud. 2 friendly sentences."""
+            system_prompt = "You are an AI assistant. Explain you don't have a physical location - you exist in the cloud. 2 friendly sentences."
             user_prompt = f"User: {user_message}\n\nFriendly response:"
             max_tokens = 80
             
@@ -493,7 +515,6 @@ def chat():
             max_tokens = 30
             
         elif web_results:
-            # REAL-TIME MODE: Use web search results
             web_context = ""
             for r in web_results:
                 web_context += f"📰 {r.get('title', '')}: {r.get('snippet', '')}\n\n"
@@ -501,12 +522,12 @@ def chat():
             system_prompt = """You are a knowledgeable AI assistant with access to real-time web search results.
 
 CRITICAL RULES:
-1. Answer based on the REAL-TIME web search results provided below.
-2. Use the latest information from the web to give an accurate, current answer.
-3. Be conversational and helpful.
-4. If the web results contain the answer, state it clearly.
-5. NEVER say "the web results show" or "according to the search" - just answer naturally.
-6. 3-5 sentences max."""
+1. Answer STRICTLY based on the real-time web search results below.
+2. Give the most current, accurate answer available.
+3. State facts directly from the search results.
+4. NEVER use outdated training data if the web results have current info.
+5. NEVER say "according to the search" - just answer naturally.
+6. Be conversational. 2-4 sentences."""
             
             user_prompt = f"""Real-time web search results for: {user_message}
 
@@ -514,7 +535,7 @@ CRITICAL RULES:
 
 Question: {user_message}
 
-Give an accurate, up-to-date answer based on these real-time results:"""
+Give the current, accurate answer based on these real-time results. DO NOT use outdated knowledge:"""
             max_tokens = 250
             
         elif doc_context:
@@ -533,7 +554,7 @@ Natural answer:"""
         else:
             system_prompt = """You are a smart, knowledgeable AI assistant. Answer naturally using your knowledge.
 Be conversational. 3-5 sentences for explanations, 2-3 for definitions.
-You can answer ANY topic - science, history, math, technology, etc."""
+If asked about current events or people, suggest checking recent sources."""
             
             user_prompt = f"Question: {user_message}\n\nNatural answer:"
             max_tokens = 300
@@ -584,7 +605,7 @@ You can answer ANY topic - science, history, math, technology, etc."""
             if is_greeting and (len(response_text) < 3 or len(response_text) > 80):
                 response_text = "Hey there! 👋 How can I help you today?"
             if is_about_ai and len(response_text) < 10:
-                response_text = "I'm an AI assistant! I don't have a physical location or country - I exist in the cloud to help you learn and answer questions. 😊"
+                response_text = "I'm an AI assistant! I exist in the cloud to help you learn. 😊"
             if is_thanks and len(response_text) > 40:
                 response_text = "You're welcome! 😊"
             if not response_text or len(response_text) < 2:
@@ -596,7 +617,7 @@ You can answer ANY topic - science, history, math, technology, etc."""
                 'mode': 'realtime' if web_results else ('study' if doc_context else 'general')
             })
         else:
-            return jsonify({'response': "I'm having trouble right now. Could you try asking again?"}), 500
+            return jsonify({'response': "I'm having trouble right now. Could you try again?"}), 500
             
     except Exception as e:
         print(f"Chat error: {e}")
