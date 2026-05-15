@@ -23,6 +23,7 @@ import time
 import re
 import uuid
 import requests
+import urllib.parse
 
 load_dotenv()
 
@@ -231,10 +232,32 @@ def upload_to_hf_dataset(file_path, filename):
     except:
         return False
 
-# ========== WEB SEARCH ==========
+# ========== IMPROVED WEB SEARCH WITH WIKIPEDIA FALLBACK ==========
 
 def search_web(query):
-    """Search the web for real-time information"""
+    """Smart search: Clean query, try DDGS first, then Wikipedia for factual accuracy"""
+    # Clean and normalize the query
+    query = query.lower().strip()
+    query = query.replace('srilanka', 'sri lanka')
+    query = re.sub(r'\b(who is the|who is|who are|what is the|what is|current|present)\b', '', query)
+    query = re.sub(r'\s+', ' ', query).strip()
+    
+    print(f"🔍 Cleaned query: {query[:80]}")
+    
+    # Try DDGS first
+    results = _search_ddgs(query)
+    if results and len(results) >= 2:
+        return results
+    
+    # Fallback to Wikipedia for factual/person questions
+    if any(word in query for word in ['president', 'prime minister', 'chief minister', 'cm', 'ceo', 'capital', 'country', 'leader', 'minister', 'governor']):
+        wiki_results = _search_wikipedia(query)
+        if wiki_results:
+            return wiki_results
+    
+    return results
+
+def _search_ddgs(query):
     try:
         from ddgs import DDGS
         results = []
@@ -242,7 +265,7 @@ def search_web(query):
             for r in ddgs.text(query, max_results=5):
                 results.append({"title": r.get("title", ""), "snippet": r.get("body", ""), "link": r.get("href", "")})
         if results:
-            print(f"✅ DDGS: {len(results)} results for '{query[:60]}'")
+            print(f"✅ DDGS: {len(results)} results")
             return results
     except:
         pass
@@ -253,33 +276,64 @@ def search_web(query):
             for r in ddgs.text(query, max_results=5):
                 results.append({"title": r.get("title", ""), "snippet": r.get("body", ""), "link": r.get("href", "")})
         if results:
-            print(f"✅ duckduckgo_search: {len(results)} results for '{query[:60]}'")
+            print(f"✅ duckduckgo_search: {len(results)} results")
             return results
     except:
         pass
-    print(f"❌ No search results for '{query[:60]}'")
+    return None
+
+def _search_wikipedia(query):
+    """Get accurate info from Wikipedia API - free, reliable, always up-to-date"""
+    try:
+        # Search for the topic
+        search_url = f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={urllib.parse.quote(query)}&format=json"
+        response = requests.get(search_url, headers={"User-Agent": "Chatbot/1.0"}, timeout=10)
+        data = response.json()
+        
+        if data.get('query', {}).get('search'):
+            # Get the first result's page ID
+            page_id = data['query']['search'][0]['pageid']
+            title = data['query']['search'][0]['title']
+            
+            # Get the extract (summary) of the page
+            extract_url = f"https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro&explaintext&pageids={page_id}&format=json"
+            extract_response = requests.get(extract_url, headers={"User-Agent": "Chatbot/1.0"}, timeout=10)
+            extract_data = extract_response.json()
+            
+            pages = extract_data.get('query', {}).get('pages', {})
+            page = pages.get(str(page_id), {})
+            extract = page.get('extract', '')
+            
+            if extract:
+                snippet = extract[:500] + ('...' if len(extract) > 500 else '')
+                print(f"✅ Wikipedia: {title}")
+                return [{"title": title, "snippet": snippet, "link": f"https://en.wikipedia.org/?curid={page_id}"}]
+    except Exception as e:
+        print(f"⚠️ Wikipedia error: {e}")
     return None
 
 def should_search_web(user_message):
     """Determine if question needs real-time web search"""
     msg = user_message.lower()
     
-    # ALWAYS search for these topics
+    # Always search for political/current affairs questions
     always_search = [
         'president', 'prime minister', 'chief minister', 'cm ', ' cm', 'governor',
         'ceo', 'leader', 'king', 'queen', 'minister', 'mayor', 'chancellor',
         'election', 'current', 'latest', 'today news', 'weather', 'stock',
         'score', 'live', '2026', '2025', 'recent', 'breaking news',
         'who is', 'who are', 'who was', 'which party', 'ruling party',
+        'capital of', 'population of', 'currency of',
     ]
     if any(t in msg for t in always_search):
         return True
     
-    # If it asks about a location + political role
+    # Location-based questions
     locations = ['sri lanka', 'srilanka', 'india', 'usa', 'uk', 'china', 'australia',
                 'canada', 'japan', 'france', 'germany', 'russia', 'brazil',
                 'pakistan', 'bangladesh', 'nepal', 'singapore', 'malaysia',
-                'tamilnadu', 'tamil nadu', 'kerala', 'karnataka', 'delhi']
+                'tamilnadu', 'tamil nadu', 'kerala', 'karnataka', 'delhi',
+                'maharashtra', 'gujarat', 'rajasthan', 'punjab', 'bihar']
     if any(l in msg for l in locations):
         return True
     
@@ -375,22 +429,18 @@ def chat():
         
         # ========== STEP 1: CLASSIFY THE MESSAGE ==========
         
-        # Greetings
         greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening', 
                     'sup', 'yo', 'hola', 'hii', 'heyy', 'helloo', 'morning', 'evening']
         is_greeting = any(user_lower == g or user_lower.startswith(g + ' ') for g in greetings) and msg_len <= 3
         
-        # Short acknowledgments
         short_acks = ['ok', 'okay', 'k', 'fine', 'sure', 'yes', 'yeah', 'yep', 'no', 'nope', 
                      'right', 'got it', 'gotcha', 'understood', 'alright', 'cool', 'nice',
                      'good', 'great', 'hmm', 'hm', 'ah', 'oh', 'i see']
         is_short_ack = user_lower in short_acks or msg_len == 1
         
-        # Thanks
         thanks_words = ['thank', 'thanks', 'thx', 'appreciate']
         is_thanks = any(t in user_lower for t in thanks_words) and msg_len <= 4
         
-        # About AI questions
         identity_q = ['who are you', 'what are you', 'your name', 'about yourself', 
                      'introduce yourself', 'who created you', 'are you ai', 'are you human']
         location_q = ['where are you', 'where do you live', 'your country', 'your location']
@@ -405,7 +455,6 @@ def chat():
         web_results = None
         
         if not is_casual and should_search_web(user_lower):
-            # Clean the query for better search results
             search_query = user_message
             cleanups = ['check the latest news and tell', 'can you check', 'please tell me', 
                        'tell me', 'can you tell', 'do you know', 'i want to know',
@@ -419,7 +468,7 @@ def chat():
             print(f"🔍 Web search: {search_query[:80]}")
             web_results = search_web(search_query)
         
-        # ========== STEP 3: DOCUMENT SEARCH (for non-real-time questions) ==========
+        # ========== STEP 3: DOCUMENT SEARCH ==========
         doc_context = ""
         sources = []
         
@@ -440,7 +489,7 @@ def chat():
             except Exception as e:
                 print(f"Document search error: {e}")
         
-        # ========== STEP 4: BUILD THE RIGHT PROMPT ==========
+        # ========== STEP 4: BUILD PROMPT ==========
         
         if is_greeting:
             system_prompt = "You are a friendly AI assistant. Give a SHORT warm greeting (1 sentence)."
@@ -467,7 +516,6 @@ def chat():
             temperature = 0.7
             
         elif web_results:
-            # REAL-TIME MODE: Web search results are the ONLY source
             web_context = "\n\n".join([f"📰 {r['title']}\n{r['snippet']}" for r in web_results])
             print(f"📰 Web context: {len(web_context)} chars")
             
@@ -477,7 +525,8 @@ The web results contain the CURRENT, ACCURATE answer.
 Read the results, find the answer, state it in 1-2 sentences.
 DO NOT say "I don't know" if the results have information.
 DO NOT mention any previous conversations or topics.
-DO NOT say "that's not related to the topic"."""
+DO NOT say "that's not related to the topic".
+DO NOT say "the web results do not mention"."""
             
             user_prompt = f"""WEB SEARCH RESULTS (use ONLY these):
 {web_context}
@@ -486,10 +535,9 @@ Question: {user_message}
 
 Answer in 1-2 sentences using ONLY the web results:"""
             max_tokens = 150
-            temperature = 0.1  # Ultra-factual
+            temperature = 0.1
             
         elif doc_context:
-            # DOCUMENT MODE: Use uploaded course materials
             system_prompt = """You are a helpful AI tutor. Answer based on the course material provided.
 NEVER mention "study notes", "documents", "files", "PDFs", or "according to".
 Answer naturally as if you know the information yourself.
@@ -505,7 +553,6 @@ Natural answer:"""
             temperature = 0.7
             
         else:
-            # GENERAL MODE: Use AI's own knowledge
             system_prompt = """You are a smart, knowledgeable AI assistant. 
 Answer naturally using your knowledge. Be conversational.
 3-5 sentences for explanations, 2-3 for definitions.
@@ -545,7 +592,6 @@ You can answer ANY topic - science, history, math, technology, etc."""
             response_text = re.sub(r'\*{1,3}', '', response_text)
             response_text = re.sub(r'#{1,4}\s*', '', response_text)
             
-            # Remove ALL document/note mentions
             bad_phrases = [
                 r"(?i).*study notes.*?\.\s*",
                 r"(?i).*the (documents?|files?|PDFs?|notes).*?\.\s*",
@@ -560,12 +606,13 @@ You can answer ANY topic - science, history, math, technology, etc."""
                 r"(?i)if you have (any )?questions on.*?[.!]\s*",
                 r"(?i)i'?d be happy to help with.*?[.!]\s*",
                 r"(?i)remote procedure call.*?[.!]\s*",
+                r"(?i).*web (search )?results do not.*?\.\s*",
+                r"(?i).*do not mention.*?\.\s*",
             ]
             for phrase in bad_phrases:
                 response_text = re.sub(phrase, '', response_text)
             response_text = response_text.strip()
             
-            # Safety nets
             if is_greeting and len(response_text) > 80:
                 response_text = "Hey there! 👋 How can I help you today?"
             if is_short_ack and len(response_text) > 60:
@@ -599,7 +646,7 @@ def check_status():
         'document_count': doc_count,
         'api_connected': groq_connected,
         'qdrant_connected': qdrant_client is not None,
-        'web_search': 'DuckDuckGo (Free & Unlimited)'
+        'web_search': 'DDGS + Wikipedia (Free & Unlimited)'
     })
 
 @app.route('/admin/documents', methods=['GET'])
@@ -652,7 +699,7 @@ if __name__ == '__main__':
     print("\n" + "="*60)
     print("🚀 SERVER STARTED")
     print(f"📚 Documents: {doc_count}")
-    print(f"🔍 Web Search: DuckDuckGo (Free & Unlimited)")
+    print(f"🔍 Web Search: DDGS + Wikipedia (Free & Unlimited)")
     print(f"🌐 http://0.0.0.0:{port}/")
     print("="*60 + "\n")
     app.run(host='0.0.0.0', port=port, debug=False)
