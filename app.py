@@ -262,7 +262,7 @@ def search_web(query):
         from ddgs import DDGS
         results = []
         with DDGS() as ddgs:
-            search_results = list(ddgs.text(query, max_results=3))
+            search_results = list(ddgs.text(query, max_results=5))
             for r in search_results:
                 results.append({
                     "title": r.get("title", ""),
@@ -281,7 +281,7 @@ def search_web(query):
         from duckduckgo_search import DDGS
         results = []
         with DDGS() as ddgs:
-            search_results = list(ddgs.text(query, max_results=3))
+            search_results = list(ddgs.text(query, max_results=5))
             for r in search_results:
                 results.append({
                     "title": r.get("title", ""),
@@ -304,9 +304,17 @@ def needs_real_time_info(user_message):
     user_lower = user_message.lower()
     user_lower = user_lower.replace('curretn', 'current').replace('presidant', 'president')
     
+    # Person/role indicators ALWAYS trigger web search
     person_roles = ['president', 'prime minister', 'ceo', 'leader', 'king', 'queen', 
                     'minister', 'governor', 'mayor', 'chancellor', 'chairman', 'director']
     if any(role in user_lower for role in person_roles):
+        return True
+    
+    # Country names also trigger web search
+    countries = ['sri lanka', 'srilanka', 'india', 'usa', 'uk', 'china', 'australia', 
+                'canada', 'japan', 'france', 'germany', 'russia', 'brazil',
+                'pakistan', 'bangladesh', 'nepal', 'singapore', 'malaysia']
+    if any(c in user_lower for c in countries) and ('who' in user_lower or 'what' in user_lower):
         return True
     
     real_time_indicators = [
@@ -444,18 +452,15 @@ def chat():
                          'do you', 'is the', 'are the', 'is there', 'are there']
         is_question = any(user_lower.startswith(q) for q in question_words) or user_lower.endswith('?')
         
-        # Greetings
         greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening', 
                     'sup', 'yo', 'hola', 'hii', 'heyy', 'helloo', 'morning', 'evening', 'good day']
         is_greeting = any(user_lower == g or user_lower.startswith(g + ' ') for g in greetings) and msg_len <= 3 and not is_question
         
-        # Short acknowledgments (FIX: prevents document search for "ok", "fine", etc.)
         short_acks = ['ok', 'okay', 'k', 'fine', 'sure', 'yes', 'yeah', 'yep', 'no', 'nope', 
                      'right', 'got it', 'gotcha', 'understood', 'alright', 'cool', 'nice',
                      'good', 'great', 'hmm', 'hm', 'ah', 'oh', 'i see', 'ic']
         is_short_ack = user_lower in short_acks or (msg_len == 1 and not is_question)
         
-        # Identity/AI questions
         identity_q = ['who are you', 'what are you', 'your name', 'about yourself', 
                      'introduce yourself', 'tell me about yourself', 'who created you', 
                      'are you ai', 'are you human', 'are you real']
@@ -469,14 +474,11 @@ def chat():
         is_user_personal = any(q in user_lower for q in user_personal_q)
         is_about_ai = is_identity or is_location
         
-        # Thanks
         thanks_words = ['thank', 'thanks', 'thx', 'appreciate']
         is_thanks = any(t in user_lower for t in thanks_words) and msg_len <= 4 and not is_question
         
         # Check real-time
         needs_realtime = needs_real_time_info(user_lower)
-        
-        # is_casual = skip document search entirely
         is_casual = is_greeting or is_thanks or is_about_ai or is_user_personal or is_short_ack
         
         print(f"📝 {user_message[:80]}")
@@ -489,9 +491,10 @@ def chat():
             web_results = search_web(user_message)
             if web_results:
                 print(f"✅ {len(web_results)} results")
-                print(f"   First: {web_results[0].get('title', 'N/A')[:80]}")
+                for i, r in enumerate(web_results):
+                    print(f"   [{i+1}] {r.get('title', 'N/A')[:100]}")
             else:
-                print("⚠️ No web results")
+                print("⚠️ No web results - AI will use its own knowledge")
         
         # ========== DOCUMENT SEARCH (only if NOT casual AND no web results) ==========
         doc_context = ""
@@ -524,8 +527,7 @@ def chat():
             max_tokens = 50
             
         elif is_short_ack:
-            # Short acknowledgment - just acknowledge briefly
-            system_prompt = "You are a friendly AI assistant. The user sent a short acknowledgment. Respond warmly in 1 VERY short sentence. Ask if they need help."
+            system_prompt = "You are a friendly AI assistant. The user sent a short acknowledgment. Respond warmly in 1 VERY short sentence."
             user_prompt = f"User: {user_message}\n\nShort friendly response:"
             max_tokens = 40
             
@@ -552,29 +554,24 @@ def chat():
         elif web_results:
             web_context = ""
             for r in web_results:
-                web_context += f"📰 {r.get('title', '')}: {r.get('snippet', '')}\n\n"
+                web_context += f"📰 {r.get('title', '')}\n{r.get('snippet', '')}\n\n"
             
             print(f"📰 Web context: {len(web_context)} chars")
             
-            system_prompt = """You are answering a question using real-time web search results.
-
-CRITICAL INSTRUCTIONS:
-1. READ the web search results below carefully.
-2. The answer to the user's question IS in these results.
-3. EXTRACT the answer from the results and state it directly.
-4. DO NOT say "I don't know" if the results contain information.
-5. DO NOT mention documents, notes, or previous conversations.
-6. DO NOT say "That's not related to the topic."
-7. Give a direct, clear answer based on the search results.
-8. If the results mention a person's name as president/leader, that IS the answer."""
+            # SUPER FORCEFUL prompt that completely overrides training data
+            system_prompt = """IMPORTANT: You are answering based on REAL-TIME WEB SEARCH RESULTS provided below.
+YOUR TRAINING DATA IS OUTDATED. DO NOT USE IT.
+The web results contain the CURRENT, ACCURATE answer.
+READ THE WEB RESULTS and state ONLY what they say.
+IGNORE everything you think you know about this topic.
+The web results are the ONLY source of truth."""
             
-            user_prompt = f"""WEB SEARCH RESULTS FOR: {user_message}
-
+            user_prompt = f"""REAL-TIME WEB SEARCH RESULTS (use ONLY these):
 {web_context}
 
-Based SOLELY on these search results, answer: {user_message}
+Question: {user_message}
 
-State the answer directly from the results above:"""
+Based EXCLUSIVELY on the web search results above (NOT your training data), answer the question in 1-2 sentences:"""
             max_tokens = 200
             
         elif doc_context:
@@ -592,8 +589,7 @@ Natural answer:"""
             
         else:
             system_prompt = """You are a smart, knowledgeable AI assistant. Answer naturally using your knowledge.
-Be conversational. 3-5 sentences for explanations, 2-3 for definitions.
-If asked about current events or people, suggest checking recent sources."""
+Be conversational. 3-5 sentences for explanations, 2-3 for definitions."""
             
             user_prompt = f"Question: {user_message}\n\nNatural answer:"
             max_tokens = 300
@@ -607,7 +603,7 @@ If asked about current events or people, suggest checking recent sources."""
                 try:
                     response_text = groq_chat_completion(
                         messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                        model=model, max_tokens=max_tokens, temperature=0.7
+                        model=model, max_tokens=max_tokens, temperature=0.3
                     )
                     break
                 except:
@@ -618,7 +614,7 @@ If asked about current events or people, suggest checking recent sources."""
                     completion = groq_client.chat.completions.create(
                         model=model,
                         messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                        temperature=0.7, max_tokens=max_tokens
+                        temperature=0.3, max_tokens=max_tokens
                     )
                     response_text = completion.choices[0].message.content
                     break
@@ -636,6 +632,9 @@ If asked about current events or people, suggest checking recent sources."""
                 r'(?i).*based on.*?\.\s*',
                 r'(?i).*reference material.*?\.\s*',
                 r'(?i).*course (materials?|notes).*?\.\s*',
+                r'(?i).*that\'s not related.*?\.\s*',
+                r'(?i).*not related to the topic.*?\.\s*',
+                r'(?i).*remote procedure call.*?\.\s*',
             ]
             for phrase in doc_phrases:
                 response_text = re.sub(phrase, '', response_text)
