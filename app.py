@@ -236,17 +236,14 @@ def upload_to_hf_dataset(file_path, filename):
 def get_wikipedia_summary(query):
     """Get accurate, up-to-date information directly from Wikipedia"""
     try:
-        # Clean the query
         query = query.lower().strip()
         query = query.replace('srilanka', 'sri lanka')
         
-        # Step 1: Search Wikipedia for the best matching article
         search_url = f"https://en.wikipedia.org/w/api.php?action=opensearch&search={urllib.parse.quote(query)}&limit=3&format=json"
         response = requests.get(search_url, headers={"User-Agent": "AI-Chatbot/1.0"}, timeout=10)
         data = response.json()
         
         if len(data) >= 2 and data[1]:
-            # Get summaries for top results
             summaries = []
             for page_title in data[1][:3]:
                 try:
@@ -256,7 +253,6 @@ def get_wikipedia_summary(query):
                     
                     extract = summary_data.get('extract', '')
                     if extract:
-                        # Get first 5 sentences
                         sentences = re.split(r'(?<=[.!?])\s+', extract)
                         snippet = ' '.join(sentences[:5])
                         summaries.append({
@@ -268,7 +264,7 @@ def get_wikipedia_summary(query):
                     continue
             
             if summaries:
-                print(f"✅ Wikipedia: {len(summaries)} articles found for '{query[:60]}'")
+                print(f"✅ Wikipedia: {len(summaries)} articles for '{query[:60]}'")
                 return summaries
     except Exception as e:
         print(f"⚠️ Wikipedia error: {e}")
@@ -362,8 +358,7 @@ def chat():
         user_lower = user_message.lower().strip()
         msg_len = len(user_lower.split())
         
-        # ========== STEP 1: CLASSIFY ==========
-        
+        # ========== CLASSIFY ==========
         greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening', 
                     'sup', 'yo', 'hola', 'hii', 'heyy', 'helloo', 'morning', 'evening']
         is_greeting = any(user_lower == g or user_lower.startswith(g + ' ') for g in greetings) and msg_len <= 3
@@ -383,13 +378,10 @@ def chat():
         
         is_casual = is_greeting or is_short_ack or is_thanks or is_about_ai
         
-        # Check if it's a general knowledge question (not about uploaded documents)
-        is_general_knowledge = not is_casual  # Default: if not casual, it's a question
-        
         print(f"📝 {user_message[:80]}")
-        print(f"   is_casual={is_casual}, is_general_knowledge={is_general_knowledge}")
+        print(f"   is_casual={is_casual}")
         
-        # ========== STEP 2: SEARCH DOCUMENTS FIRST ==========
+        # ========== SEARCH DOCUMENTS FIRST ==========
         doc_context = ""
         sources = []
         found_in_docs = False
@@ -408,23 +400,22 @@ def chat():
                         texts.append(payload.get('text', ''))
                     if texts:
                         doc_context = "\n\n".join(texts[:3])
-                        # Check if documents actually contain relevant info
                         if len(doc_context) > 100:
                             found_in_docs = True
                             print(f"📚 Found in documents ({len(texts)} chunks)")
             except Exception as e:
                 print(f"Document search error: {e}")
         
-        # ========== STEP 3: IF NOT IN DOCUMENTS, GO TO WIKIPEDIA ==========
+        # ========== WIKIPEDIA FALLBACK ==========
         wiki_results = None
         if not is_casual and not found_in_docs:
-            print(f"🔍 Not in documents, searching Wikipedia...")
+            print(f"🔍 Searching Wikipedia...")
             wiki_results = get_wikipedia_summary(user_message)
         
-        # ========== STEP 4: BUILD PROMPT ==========
+        # ========== BUILD PROMPT ==========
         
         if is_greeting:
-            system_prompt = "You are a friendly AI. Give a SHORT warm greeting (1 sentence)."
+            system_prompt = "Friendly AI. SHORT greeting (1 sentence)."
             user_prompt = f"User: {user_message}\n\nShort greeting:"
             max_tokens = 50
             temperature = 0.7
@@ -442,18 +433,16 @@ def chat():
             temperature = 0.7
             
         elif is_about_ai:
-            system_prompt = "You are an AI assistant. Be honest about being an AI. 2 friendly sentences."
+            system_prompt = "AI assistant. Be honest about being AI. 2 friendly sentences."
             user_prompt = f"User: {user_message}\n\nFriendly response:"
             max_tokens = 80
             temperature = 0.7
             
         elif found_in_docs:
-            # FROM DOCUMENTS
-            system_prompt = """You are a helpful AI tutor. Answer based on the course material.
-NEVER mention "study notes", "documents", "files", "PDFs", or "according to".
-Answer naturally as if you know it yourself. 3-5 sentences max."""
-            
-            user_prompt = f"""Course material (use silently, NEVER mention):
+            system_prompt = """Helpful AI tutor. Answer from course material.
+NEVER mention "study notes", "documents", "files", "PDFs".
+Answer naturally. 3-5 sentences max."""
+            user_prompt = f"""Course material (silent):
 {doc_context[:800]}
 
 Question: {user_message}
@@ -463,41 +452,35 @@ Natural answer:"""
             temperature = 0.7
             
         elif wiki_results:
-            # FROM WIKIPEDIA
-            wiki_context = "\n\n".join([f"📖 {r['title']}\n{r['snippet']}" for r in wiki_results])
-            print(f"📖 Wikipedia context: {len(wiki_context)} chars")
+            wiki_context = "\n\n".join([f"ARTICLE: {r['title']}\n{r['snippet']}" for r in wiki_results])
+            print(f"📖 Wikipedia: {len(wiki_context)} chars")
+            print(f"   Preview: {wiki_context[:200]}...")
             
-            system_prompt = """You are a knowledgeable AI assistant. Answer based on the Wikipedia information provided.
-
-RULES:
-1. Read the Wikipedia extracts below.
-2. Extract the answer to the user's question.
-3. State the answer clearly in 2-3 sentences.
-4. Be accurate and helpful.
-5. NEVER say "Wikipedia says" or "according to Wikipedia".
-6. Just answer naturally as if you know it."""
+            system_prompt = """READ THE WIKIPEDIA TEXT BELOW.
+EXTRACT the answer from the Wikipedia text.
+STATE the answer directly in 1-2 sentences.
+DO NOT say "I don't know".
+DO NOT mention RPC, RMI, or previous topics.
+DO NOT say "that's not related".
+JUST ANSWER using the Wikipedia text."""
             
-            user_prompt = f"""Wikipedia information:
-{wiki_context[:1000]}
+            user_prompt = f"""WIKIPEDIA INFORMATION:
+{wiki_context[:1200]}
 
-Question: {user_message}
+QUESTION: {user_message}
 
-Answer based on this information:"""
-            max_tokens = 250
-            temperature = 0.3
+ANSWER (use Wikipedia info above):"""
+            max_tokens = 200
+            temperature = 0.1
             
         else:
-            # USE AI'S OWN KNOWLEDGE
-            system_prompt = """You are a smart, knowledgeable AI assistant. 
-Answer naturally using your knowledge. Be conversational.
-3-5 sentences for explanations, 2-3 for definitions.
-You can answer ANY topic."""
-            
+            system_prompt = """Smart AI assistant. Answer naturally using your knowledge.
+3-5 sentences for explanations, 2-3 for definitions."""
             user_prompt = f"Question: {user_message}\n\nNatural answer:"
             max_tokens = 300
             temperature = 0.7
         
-        # ========== STEP 5: GET RESPONSE ==========
+        # ========== GET RESPONSE ==========
         response_text = None
         models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
         
@@ -522,10 +505,16 @@ You can answer ANY topic."""
                     break
                 except: continue
         
-        # ========== STEP 6: CLEAN ==========
+        # ========== CLEAN ==========
         if response_text:
             response_text = re.sub(r'\*{1,3}', '', response_text)
             response_text = re.sub(r'#{1,4}\s*', '', response_text)
+            
+            # FORCE Wikipedia text if AI refuses to answer
+            if wiki_results and ('not aware' in response_text.lower() or "don't know" in response_text.lower() or 'not related' in response_text.lower() or 'rpc' in response_text.lower() or 'rmi' in response_text.lower()):
+                first_snippet = wiki_results[0]['snippet'][:300]
+                response_text = first_snippet
+                print("⚠️ AI refused - using Wikipedia directly")
             
             bad_phrases = [
                 r"(?i).*study notes.*?\.\s*",
