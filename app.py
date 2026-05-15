@@ -270,6 +270,48 @@ def get_wikipedia_summary(query):
         print(f"⚠️ Wikipedia error: {e}")
     return None
 
+def is_document_relevant(user_message, doc_context):
+    """Check if documents are actually relevant to the question"""
+    user_lower = user_message.lower()
+    doc_lower = doc_context.lower()
+    
+    # Topics that should ALWAYS skip documents and go to Wikipedia
+    skip_docs_keywords = [
+        'president', 'minister', 'election', 'government', 'country', 'capital', 
+        'leader', 'king', 'queen', 'prime minister', 'governor', 'mayor',
+        'war', 'army', 'military', 'navy', 'air force',
+        'movie', 'actor', 'actress', 'film', 'cinema', 'hollywood', 'bollywood',
+        'song', 'music', 'singer', 'band', 'album', 'concert',
+        'game', 'sports', 'cricket', 'football', 'soccer', 'tennis', 'olympics',
+        'weather', 'earthquake', 'tsunami', 'flood', 'disaster',
+        'covid', 'virus', 'disease', 'vaccine', 'hospital',
+        'stock', 'market', 'crypto', 'bitcoin', 'price', 'currency',
+        'recipe', 'food', 'cooking', 'restaurant', 'cuisine',
+        'travel', 'hotel', 'flight', 'airline', 'tourism',
+        'animal', 'bird', 'fish', 'plant', 'tree', 'flower',
+        'planet', 'space', 'nasa', 'galaxy', 'universe', 'moon', 'sun',
+        'phone', 'iphone', 'samsung', 'laptop', 'computer', 'technology',
+        'car', 'bike', 'vehicle', 'transport',
+        'population', 'area', 'continent', 'ocean', 'river', 'mountain',
+        'history', 'war', 'battle', 'revolution', 'independence',
+    ]
+    
+    if any(kw in user_lower for kw in skip_docs_keywords):
+        print(f"   🚫 Question is general knowledge - skipping documents")
+        return False
+    
+    # Check if document content actually relates to the question
+    user_words = set(re.findall(r'\b\w{4,}\b', user_lower))
+    doc_words = set(re.findall(r'\b\w{4,}\b', doc_lower))
+    overlap = user_words & doc_words
+    
+    if len(overlap) < 2:
+        print(f"   🚫 Only {len(overlap)} matching keywords - documents not relevant")
+        return False
+    
+    print(f"   ✅ {len(overlap)} matching keywords - documents are relevant")
+    return True
+
 # ==================== ROUTES ====================
 
 @app.route('/')
@@ -400,9 +442,12 @@ def chat():
                         texts.append(payload.get('text', ''))
                     if texts:
                         doc_context = "\n\n".join(texts[:3])
-                        if len(doc_context) > 100:
+                        # CHECK IF DOCUMENTS ARE ACTUALLY RELEVANT
+                        if len(doc_context) > 100 and is_document_relevant(user_message, doc_context):
                             found_in_docs = True
-                            print(f"📚 Found in documents ({len(texts)} chunks)")
+                            print(f"📚 Documents are relevant ({len(texts)} chunks)")
+                        else:
+                            print(f"   📚 Documents found but NOT relevant - will use Wikipedia")
             except Exception as e:
                 print(f"Document search error: {e}")
         
@@ -511,7 +556,7 @@ ANSWER (use Wikipedia info above):"""
             response_text = re.sub(r'#{1,4}\s*', '', response_text)
             
             # FORCE Wikipedia text if AI refuses to answer
-            if wiki_results and ('not aware' in response_text.lower() or "don't know" in response_text.lower() or 'not related' in response_text.lower() or 'rpc' in response_text.lower() or 'rmi' in response_text.lower()):
+            if wiki_results and ('not aware' in response_text.lower() or "don't know" in response_text.lower() or 'not related' in response_text.lower() or 'rpc' in response_text.lower() or 'rmi' in response_text.lower() or 'course material' in response_text.lower()):
                 first_snippet = wiki_results[0]['snippet'][:300]
                 response_text = first_snippet
                 print("⚠️ AI refused - using Wikipedia directly")
@@ -519,6 +564,7 @@ ANSWER (use Wikipedia info above):"""
             bad_phrases = [
                 r"(?i).*study notes.*?\.\s*",
                 r"(?i).*the (documents?|files?|PDFs?|notes).*?\.\s*",
+                r"(?i).*course material.*?\.\s*",
                 r"(?i).*according to.*?\.\s*",
                 r"(?i).*based on.*?\.\s*",
                 r"(?i)that'?s not related.*?\.\s*",
@@ -562,7 +608,7 @@ def check_status():
         'document_count': doc_count,
         'api_connected': groq_connected,
         'qdrant_connected': qdrant_client is not None,
-        'knowledge_source': 'Documents + Wikipedia (Free)'
+        'knowledge_source': 'Documents (if relevant) + Wikipedia (Free)'
     })
 
 @app.route('/admin/documents', methods=['GET'])
@@ -614,7 +660,7 @@ if __name__ == '__main__':
     print("\n" + "="*60)
     print("🚀 SERVER STARTED")
     print(f"📚 Documents: {doc_count}")
-    print(f"📖 Knowledge: Documents + Wikipedia (Free)")
+    print(f"📖 Knowledge: Documents (if relevant) + Wikipedia (Free)")
     print(f"🌐 http://0.0.0.0:{port}/")
     print("="*60 + "\n")
     app.run(host='0.0.0.0', port=port, debug=False)
