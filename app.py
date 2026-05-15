@@ -85,13 +85,10 @@ qdrant_client = None
 try:
     qdrant_url = os.getenv('QDRANT_URL')
     qdrant_api_key = os.getenv('QDRANT_API_KEY')
-    
     if qdrant_url and qdrant_api_key:
         qdrant_client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
-        
         collections = qdrant_client.get_collections().collections
         collection_names = [c.name for c in collections]
-        
         if "university_notes" not in collection_names:
             qdrant_client.create_collection(
                 collection_name="university_notes",
@@ -114,27 +111,24 @@ try:
     if hf_token and hf_dataset:
         hf_api = HfApi(token=hf_token)
         print(f"✅ HF Dataset ready: {hf_dataset}")
-    else:
-        print("⚠️ HF Dataset credentials not found")
-except Exception as e:
-    print(f"⚠️ HF Dataset setup failed: {e}")
+except:
+    pass
 
 groq_api_key = os.getenv('GROQ_API_KEY')
 groq_client = None
 groq_connected = False
-
 if groq_api_key:
     try:
         from groq import Groq
         groq_client = Groq(api_key=groq_api_key)
-        print("✅ Groq client created")
         groq_connected = True
+        print("✅ Groq client created")
     except:
         try:
             import requests
-            print("✅ Using HTTP fallback for Groq")
             groq_client = "http_fallback"
             groq_connected = True
+            print("✅ Using HTTP fallback for Groq")
         except:
             print("❌ Groq failed")
 
@@ -159,7 +153,6 @@ def extract_text_from_pdf(file_path):
                     text += page_text + "\n"
     except:
         pass
-    
     if len(text.strip()) < 100:
         try:
             from pdf2image import convert_from_path
@@ -220,16 +213,8 @@ def chunk_text(text, size=500, overlap=50):
 
 def groq_chat_completion(messages, model="llama-3.1-8b-instant", max_tokens=150, temperature=0.7):
     url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {groq_api_key}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": model,
-        "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": temperature
-    }
+    headers = {"Authorization": f"Bearer {groq_api_key}", "Content-Type": "application/json"}
+    payload = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature}
     response = requests.post(url, json=payload, headers=headers, timeout=30)
     if response.status_code == 200:
         return response.json()["choices"][0]["message"]["content"]
@@ -238,94 +223,64 @@ def groq_chat_completion(messages, model="llama-3.1-8b-instant", max_tokens=150,
 
 def upload_to_hf_dataset(file_path, filename):
     if not hf_api or not hf_dataset:
-        print("⚠️ HF Dataset not configured - skipping backup")
         return False
     try:
-        path_in_repo = f"documents/{filename}"
-        hf_api.upload_file(
-            path_or_fileobj=file_path,
-            path_in_repo=path_in_repo,
-            repo_id=hf_dataset,
-            repo_type="dataset"
-        )
-        print(f"✅ Backed up to HF: {filename}")
+        hf_api.upload_file(path_or_fileobj=file_path, path_in_repo=f"documents/{filename}",
+                          repo_id=hf_dataset, repo_type="dataset")
         return True
-    except Exception as e:
-        print(f"⚠️ HF backup failed: {e}")
+    except:
         return False
 
 # ========== DDGS WEB SEARCH ==========
 
 def search_web(query):
-    """Search the web using DDGS - completely free, no API key needed"""
+    """Search the web using DDGS"""
     try:
         from ddgs import DDGS
         results = []
         with DDGS() as ddgs:
-            search_results = list(ddgs.text(query, max_results=5))
-            for r in search_results:
-                results.append({
-                    "title": r.get("title", ""),
-                    "snippet": r.get("body", ""),
-                    "link": r.get("href", "")
-                })
+            for r in ddgs.text(query, max_results=5):
+                results.append({"title": r.get("title", ""), "snippet": r.get("body", ""), "link": r.get("href", "")})
         if results:
             print(f"✅ DDGS: {len(results)} results")
             return results
-    except ImportError:
+    except:
         pass
-    except Exception as e:
-        print(f"⚠️ DDGS error: {e}")
-    
     try:
         from duckduckgo_search import DDGS
         results = []
         with DDGS() as ddgs:
-            search_results = list(ddgs.text(query, max_results=5))
-            for r in search_results:
-                results.append({
-                    "title": r.get("title", ""),
-                    "snippet": r.get("body", ""),
-                    "link": r.get("href", "")
-                })
+            for r in ddgs.text(query, max_results=5):
+                results.append({"title": r.get("title", ""), "snippet": r.get("body", ""), "link": r.get("href", "")})
         if results:
             print(f"✅ duckduckgo_search: {len(results)} results")
             return results
-    except ImportError:
-        print("❌ No search library installed!")
-    except Exception as e:
-        print(f"⚠️ duckduckgo_search error: {e}")
-    
+    except:
+        pass
     return None
 
 
 def needs_real_time_info(user_message):
-    """Detect if the question needs real-time/current information"""
+    """Detect if question needs web search"""
     user_lower = user_message.lower()
-    user_lower = user_lower.replace('curretn', 'current').replace('presidant', 'president')
     
-    # Person/role indicators ALWAYS trigger web search
+    # Person roles = always search
     person_roles = ['president', 'prime minister', 'ceo', 'leader', 'king', 'queen', 
                     'minister', 'governor', 'mayor', 'chancellor', 'chairman', 'director']
     if any(role in user_lower for role in person_roles):
         return True
     
-    # Country names also trigger web search
+    # Country names + who/what = search
     countries = ['sri lanka', 'srilanka', 'india', 'usa', 'uk', 'china', 'australia', 
                 'canada', 'japan', 'france', 'germany', 'russia', 'brazil',
                 'pakistan', 'bangladesh', 'nepal', 'singapore', 'malaysia']
     if any(c in user_lower for c in countries) and ('who' in user_lower or 'what' in user_lower):
         return True
     
-    real_time_indicators = [
-        'current', 'latest', 'today', 'now', '2025', '2026', '2027',
-        'election', 'news', 'recent', 'weather', 'stock', 'price', 
-        'score', 'live', 'update', 'currently', 'right now',
-        'what is the latest', 'what happened', 'breaking',
-        'who is', 'who are', 'who is the', 'who is current',
-    ]
-    
-    return any(indicator in user_lower for indicator in real_time_indicators)
+    indicators = ['current', 'latest', 'today', 'now', '2025', '2026', '2027',
+                  'election', 'news', 'recent', 'weather', 'stock', 'price', 
+                  'live', 'update', 'currently', 'who is', 'who are']
+    return any(ind in user_lower for ind in indicators)
 
 # ==================== ROUTES ====================
 
@@ -363,72 +318,43 @@ def admin_panel():
 def upload_file():
     if 'files' not in request.files:
         return jsonify({'error': 'No files'}), 400
-    
     files = request.files.getlist('files')
     category = request.form.get('category', '')
-    uploaded = []
-    failed = []
-    
+    uploaded, failed = [], []
     for file in files:
-        if not file.filename:
-            continue
+        if not file.filename: continue
         try:
             filename = secure_filename(file.filename)
             file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             file.save(file_path)
             file_type = filename.split('.')[-1].lower()
-            
-            if file_type == 'pdf':
-                text = extract_text_from_pdf(file_path)
-            elif file_type == 'docx':
-                text = extract_text_from_docx(file_path)
-            elif file_type == 'txt':
-                text = extract_text_from_txt(file_path)
+            if file_type == 'pdf': text = extract_text_from_pdf(file_path)
+            elif file_type == 'docx': text = extract_text_from_docx(file_path)
+            elif file_type == 'txt': text = extract_text_from_txt(file_path)
             elif file_type in ['csv', 'xlsx', 'xls']:
-                try:
-                    df = pd.read_csv(file_path) if file_type == 'csv' else pd.read_excel(file_path)
-                    text = df.to_string()
-                except:
-                    text = ""
-            else:
-                text = extract_text_from_txt(file_path)
-            
+                try: text = (pd.read_csv(file_path) if file_type == 'csv' else pd.read_excel(file_path)).to_string()
+                except: text = ""
+            else: text = extract_text_from_txt(file_path)
             text = clean_text(text)
-            
             if text and len(text.strip()) > 50:
                 chunks = chunk_text(text)
                 points = []
                 for i, chunk in enumerate(chunks):
                     embedding = embedding_model.encode(chunk).tolist()
-                    point_id = str(uuid.uuid4())
-                    points.append(PointStruct(
-                        id=point_id,
-                        vector=embedding,
-                        payload={
-                            "filename": filename,
-                            "text": chunk,
-                            "chunk_index": i,
-                            "category": category,
-                            "file_type": file_type,
-                            "upload_date": str(pd.Timestamp.now())
-                        }
-                    ))
-                
+                    points.append(PointStruct(id=str(uuid.uuid4()), vector=embedding,
+                        payload={"filename": filename, "text": chunk, "chunk_index": i,
+                                "category": category, "file_type": file_type,
+                                "upload_date": str(pd.Timestamp.now())}))
                 if qdrant_client:
                     qdrant_client.upsert(collection_name="university_notes", points=points)
                     print(f"✅ Qdrant: {filename} ({len(chunks)} chunks)")
-                
                 upload_to_hf_dataset(file_path, filename)
                 uploaded.append({'name': filename, 'type': file_type.upper(), 'chunks': len(chunks)})
             else:
                 failed.append({'name': filename, 'reason': 'No text extracted'})
-            
-            if os.path.exists(file_path):
-                os.remove(file_path)
+            if os.path.exists(file_path): os.remove(file_path)
         except Exception as e:
-            print(f"❌ {file.filename}: {e}")
             failed.append({'name': file.filename, 'reason': str(e)})
-    
     return jsonify({'success': True, 'uploaded': uploaded, 'failed': failed})
 
 @app.route('/chat', methods=['POST'])
@@ -436,7 +362,6 @@ def chat():
     try:
         data = request.json
         user_message = data.get('message', '').strip()
-        
         if not user_message:
             return jsonify({'response': 'Please type a message.'}), 400
         if not groq_client:
@@ -445,152 +370,111 @@ def chat():
         user_lower = user_message.lower().strip()
         msg_len = len(user_lower.split())
         
-        # ========== CLASSIFICATION ==========
-        
+        # Classification
         question_words = ['what', 'who', 'where', 'when', 'why', 'how', 'which', 'whose', 'whom', 
                          'can you', 'could you', 'tell me', 'explain', 'define', 'describe',
                          'do you', 'is the', 'are the', 'is there', 'are there']
         is_question = any(user_lower.startswith(q) for q in question_words) or user_lower.endswith('?')
         
         greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening', 
-                    'sup', 'yo', 'hola', 'hii', 'heyy', 'helloo', 'morning', 'evening', 'good day']
-        is_greeting = any(user_lower == g or user_lower.startswith(g + ' ') for g in greetings) and msg_len <= 3 and not is_question
+                    'sup', 'yo', 'hola', 'hii', 'heyy', 'helloo', 'morning', 'evening']
+        is_greeting = any(user_lower == g or user_lower.startswith(g + ' ') for g in greetings) and msg_len <= 3
         
         short_acks = ['ok', 'okay', 'k', 'fine', 'sure', 'yes', 'yeah', 'yep', 'no', 'nope', 
                      'right', 'got it', 'gotcha', 'understood', 'alright', 'cool', 'nice',
-                     'good', 'great', 'hmm', 'hm', 'ah', 'oh', 'i see', 'ic']
+                     'good', 'great', 'hmm', 'hm', 'ah', 'oh']
         is_short_ack = user_lower in short_acks or (msg_len == 1 and not is_question)
         
-        identity_q = ['who are you', 'what are you', 'your name', 'about yourself', 
-                     'introduce yourself', 'tell me about yourself', 'who created you', 
-                     'are you ai', 'are you human', 'are you real']
-        location_q = ['where are you', 'where do you live', 'your country', 
-                     'which country', 'where you from', 'your location']
-        user_personal_q = ['know my name', 'do you know me', 'who am i', 
-                          'what is my name', 'remember me']
-        
-        is_identity = any(q in user_lower for q in identity_q)
-        is_location = any(q in user_lower for q in location_q) 
-        is_user_personal = any(q in user_lower for q in user_personal_q)
-        is_about_ai = is_identity or is_location
-        
         thanks_words = ['thank', 'thanks', 'thx', 'appreciate']
-        is_thanks = any(t in user_lower for t in thanks_words) and msg_len <= 4 and not is_question
+        is_thanks = any(t in user_lower for t in thanks_words) and msg_len <= 4
         
-        # Check real-time
         needs_realtime = needs_real_time_info(user_lower)
-        is_casual = is_greeting or is_thanks or is_about_ai or is_user_personal or is_short_ack
+        is_casual = is_greeting or is_thanks or is_short_ack
         
         print(f"📝 {user_message[:80]}")
-        print(f"   is_casual={is_casual}, needs_realtime={needs_realtime}, is_question={is_question}")
+        print(f"   is_casual={is_casual}, needs_realtime={needs_realtime}")
         
-        # ========== WEB SEARCH ==========
+        # ========== PRIORITY 1: WEB SEARCH for real-time questions ==========
         web_results = None
         if needs_realtime and not is_casual:
-            print(f"🔍 Web search: {user_message[:60]}")
-            web_results = search_web(user_message)
+            # SMART QUERY: extract key terms, remove filler words
+            search_query = user_message.lower()
+            filler_words = ['check the latest news and tell', 'can you check', 'please tell me', 
+                          'tell me', 'can you tell', 'do you know', 'i want to know',
+                          'check and tell', 'find and tell', 'search and tell',
+                          'look up and tell', 'google and tell']
+            for filler in filler_words:
+                search_query = search_query.replace(filler, '')
+            search_query = re.sub(r'\s+', ' ', search_query).strip()
+            if not search_query or len(search_query) < 5:
+                search_query = user_message
+            
+            print(f"🔍 Web search query: {search_query[:80]}")
+            web_results = search_web(search_query)
             if web_results:
                 print(f"✅ {len(web_results)} results")
                 for i, r in enumerate(web_results):
                     print(f"   [{i+1}] {r.get('title', 'N/A')[:100]}")
             else:
-                print("⚠️ No web results - AI will use its own knowledge")
+                print("⚠️ No web results")
         
-        # ========== DOCUMENT SEARCH (only if NOT casual AND no web results) ==========
+        # ========== PRIORITY 2: DOCUMENT SEARCH (only if no web results) ==========
         doc_context = ""
         sources = []
-        
         if qdrant_client and embedding_model and not is_casual and not web_results:
             try:
                 query_embedding = embedding_model.encode(user_message).tolist()
                 search_results = qdrant_client.search(
-                    collection_name="university_notes", query_vector=query_embedding, limit=3
-                )
+                    collection_name="university_notes", query_vector=query_embedding, limit=3)
                 if search_results:
                     texts = []
                     for hit in search_results:
                         payload = hit.payload
                         filename = payload.get('filename', 'Unknown')
-                        if filename not in sources:
-                            sources.append(filename)
+                        if filename not in sources: sources.append(filename)
                         texts.append(payload.get('text', ''))
-                    if texts:
-                        doc_context = "\n\n".join(texts[:3])
+                    if texts: doc_context = "\n\n".join(texts[:3])
             except Exception as e:
                 print(f"Search error: {e}")
         
         # ========== BUILD PROMPT ==========
-        
         if is_greeting:
-            system_prompt = "You are a friendly AI assistant. Respond with a SHORT, warm greeting. 1 sentence only."
+            system_prompt = "Friendly AI. SHORT greeting. 1 sentence."
             user_prompt = f"User: {user_message}\n\nShort greeting:"
             max_tokens = 50
-            
         elif is_short_ack:
-            system_prompt = "You are a friendly AI assistant. The user sent a short acknowledgment. Respond warmly in 1 VERY short sentence."
-            user_prompt = f"User: {user_message}\n\nShort friendly response:"
+            system_prompt = "Friendly AI. Short acknowledgment. 1 sentence."
+            user_prompt = f"User: {user_message}\n\nShort response:"
             max_tokens = 40
-            
-        elif is_identity:
-            system_prompt = "You are an AI assistant. Tell them you're an AI created to help people learn. No physical form. 2-3 friendly sentences."
-            user_prompt = f"User: {user_message}\n\nFriendly AI response:"
-            max_tokens = 100
-            
-        elif is_location:
-            system_prompt = "You are an AI assistant. Explain you don't have a physical location - you exist in the cloud. 2 friendly sentences."
-            user_prompt = f"User: {user_message}\n\nFriendly response:"
-            max_tokens = 80
-            
-        elif is_user_personal:
-            system_prompt = "You are an AI assistant. Honestly say you don't know their name but you're happy to help. 2 friendly sentences."
-            user_prompt = f"User: {user_message}\n\nHonest response:"
-            max_tokens = 60
-            
         elif is_thanks:
-            system_prompt = "Respond to thanks warmly in 1 short sentence."
+            system_prompt = "Respond to thanks. 1 short sentence."
             user_prompt = f"User: {user_message}\n\nResponse:"
             max_tokens = 30
-            
         elif web_results:
-            web_context = ""
-            for r in web_results:
-                web_context += f"📰 {r.get('title', '')}\n{r.get('snippet', '')}\n\n"
-            
+            web_context = "\n\n".join([f"📰 {r['title']}\n{r['snippet']}" for r in web_results])
             print(f"📰 Web context: {len(web_context)} chars")
             
-            # SUPER FORCEFUL prompt that completely overrides training data
-            system_prompt = """IMPORTANT: You are answering based on REAL-TIME WEB SEARCH RESULTS provided below.
-YOUR TRAINING DATA IS OUTDATED. DO NOT USE IT.
-The web results contain the CURRENT, ACCURATE answer.
-READ THE WEB RESULTS and state ONLY what they say.
-IGNORE everything you think you know about this topic.
-The web results are the ONLY source of truth."""
+            system_prompt = """Answer using real-time web search results below.
+CRITICAL: 
+1. State the answer clearly in 1-2 sentences.
+2. If results mention a person's name for a role, that IS the answer.
+3. DO NOT say "I don't know" if results have info.
+4. NEVER mention documents, notes, or previous conversations.
+5. NEVER say "the web results don't provide" if they do."""
             
-            user_prompt = f"""REAL-TIME WEB SEARCH RESULTS (use ONLY these):
+            user_prompt = f"""WEB RESULTS:
 {web_context}
 
 Question: {user_message}
 
-Based EXCLUSIVELY on the web search results above (NOT your training data), answer the question in 1-2 sentences:"""
+Answer in 1-2 sentences based on web results:"""
             max_tokens = 200
-            
         elif doc_context:
-            system_prompt = """You are a helpful AI tutor. Answer naturally.
-CRITICAL: NEVER mention "study notes", "documents", "files", or "PDFs".
-Just give the answer as if you know it yourself. Be clear and conversational. 3-5 sentences max."""
-            
-            user_prompt = f"""Reference (read silently, NEVER mention):
-{doc_context[:800]}
-
-Question: {user_message}
-
-Natural answer:"""
+            system_prompt = """Helpful AI tutor. Answer naturally. NEVER mention documents/files/PDFs."""
+            user_prompt = f"""Reference (silent):\n{doc_context[:800]}\n\nQuestion: {user_message}\n\nNatural answer:"""
             max_tokens = 250
-            
         else:
-            system_prompt = """You are a smart, knowledgeable AI assistant. Answer naturally using your knowledge.
-Be conversational. 3-5 sentences for explanations, 2-3 for definitions."""
-            
+            system_prompt = "Smart AI assistant. Answer naturally using your knowledge."
             user_prompt = f"Question: {user_message}\n\nNatural answer:"
             max_tokens = 300
         
@@ -603,52 +487,32 @@ Be conversational. 3-5 sentences for explanations, 2-3 for definitions."""
                 try:
                     response_text = groq_chat_completion(
                         messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                        model=model, max_tokens=max_tokens, temperature=0.3
-                    )
+                        model=model, max_tokens=max_tokens, temperature=0.3)
                     break
-                except:
-                    continue
+                except: continue
         else:
             for model in models_to_try:
                 try:
                     completion = groq_client.chat.completions.create(
                         model=model,
                         messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                        temperature=0.3, max_tokens=max_tokens
-                    )
+                        temperature=0.3, max_tokens=max_tokens)
                     response_text = completion.choices[0].message.content
                     break
-                except:
-                    continue
+                except: continue
         
         if response_text:
             response_text = re.sub(r'\*{1,3}', '', response_text)
             response_text = re.sub(r'#{1,4}\s*', '', response_text)
-            
-            doc_phrases = [
-                r'(?i).*study notes.*?\.\s*',
-                r'(?i).*the (documents?|files?|PDFs?|notes).*?\.\s*',
-                r'(?i).*according to.*?\.\s*',
-                r'(?i).*based on.*?\.\s*',
-                r'(?i).*reference material.*?\.\s*',
-                r'(?i).*course (materials?|notes).*?\.\s*',
-                r'(?i).*that\'s not related.*?\.\s*',
-                r'(?i).*not related to the topic.*?\.\s*',
-                r'(?i).*remote procedure call.*?\.\s*',
-            ]
-            for phrase in doc_phrases:
-                response_text = re.sub(phrase, '', response_text)
             response_text = response_text.strip()
             
-            if is_greeting and (len(response_text) < 3 or len(response_text) > 80):
+            if is_greeting and len(response_text) > 80:
                 response_text = "Hey there! 👋 How can I help you today?"
             if is_short_ack and len(response_text) > 60:
-                response_text = "Is there anything else I can help you with? 😊"
-            if is_about_ai and len(response_text) < 10:
-                response_text = "I'm an AI assistant! I exist in the cloud to help you learn. 😊"
+                response_text = "Is there anything else I can help with? 😊"
             if is_thanks and len(response_text) > 40:
                 response_text = "You're welcome! 😊"
-            if not response_text or len(response_text) < 2:
+            if not response_text:
                 response_text = "How can I help you today?"
             
             return jsonify({
@@ -657,8 +521,7 @@ Be conversational. 3-5 sentences for explanations, 2-3 for definitions."""
                 'mode': 'realtime' if web_results else ('study' if doc_context else 'general')
             })
         else:
-            return jsonify({'response': "I'm having trouble right now. Could you try again?"}), 500
-            
+            return jsonify({'response': "I'm having trouble. Try again?"}), 500
     except Exception as e:
         print(f"Chat error: {e}")
         return jsonify({'response': "Sorry, I encountered an issue. Please try again!"}), 500
@@ -667,19 +530,11 @@ Be conversational. 3-5 sentences for explanations, 2-3 for definitions."""
 def check_status():
     doc_count = 0
     if qdrant_client:
-        try:
-            info = qdrant_client.get_collection("university_notes")
-            doc_count = info.points_count
-        except:
-            pass
-    return jsonify({
-        'status': 'online',
-        'documents_available': doc_count > 0,
-        'document_count': doc_count,
-        'api_connected': groq_connected,
-        'qdrant_connected': qdrant_client is not None,
-        'web_search': 'DDGS (Free & Unlimited)'
-    })
+        try: doc_count = qdrant_client.get_collection("university_notes").points_count
+        except: pass
+    return jsonify({'status': 'online', 'documents_available': doc_count > 0,
+                   'document_count': doc_count, 'api_connected': groq_connected,
+                   'qdrant_connected': qdrant_client is not None})
 
 @app.route('/admin/documents', methods=['GET'])
 @admin_required
@@ -687,57 +542,41 @@ def get_documents():
     docs = []
     if qdrant_client:
         try:
-            scroll_results = qdrant_client.scroll(
-                collection_name="university_notes", limit=100, with_payload=True, with_vectors=False
-            )
+            scroll_results = qdrant_client.scroll(collection_name="university_notes", limit=100, with_payload=True, with_vectors=False)
             seen = set()
             for point in scroll_results[0]:
                 filename = point.payload.get('filename', '')
                 if filename and filename not in seen:
                     seen.add(filename)
-                    docs.append({
-                        'filename': filename,
-                        'file_type': point.payload.get('file_type', ''),
-                        'category': point.payload.get('category', ''),
-                        'upload_date': point.payload.get('upload_date', ''),
-                        'doc_id': point.id,
-                        'chunks': 1
-                    })
-        except:
-            pass
+                    docs.append({'filename': filename, 'file_type': point.payload.get('file_type', ''),
+                                'category': point.payload.get('category', ''), 'upload_date': point.payload.get('upload_date', ''),
+                                'doc_id': point.id, 'chunks': 1})
+        except: pass
     return jsonify({'success': True, 'documents': docs})
 
 @app.route('/admin/delete/<doc_id>', methods=['DELETE'])
 @admin_required
 def delete_document(doc_id):
     try:
-        if qdrant_client:
-            qdrant_client.delete(collection_name="university_notes", points_selector=[doc_id])
+        if qdrant_client: qdrant_client.delete(collection_name="university_notes", points_selector=[doc_id])
         return jsonify({'success': True})
-    except:
-        return jsonify({'success': False}), 500
+    except: return jsonify({'success': False}), 500
 
 @app.route('/admin/stats')
 @admin_required
 def get_admin_stats():
     doc_count = 0
     if qdrant_client:
-        try:
-            info = qdrant_client.get_collection("university_notes")
-            doc_count = info.points_count
-        except:
-            pass
+        try: doc_count = qdrant_client.get_collection("university_notes").points_count
+        except: pass
     return jsonify({'success': True, 'total_documents': doc_count, 'total_chunks': doc_count})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 7860))
     doc_count = 0
     if qdrant_client:
-        try:
-            info = qdrant_client.get_collection("university_notes")
-            doc_count = info.points_count
-        except:
-            pass
+        try: doc_count = qdrant_client.get_collection("university_notes").points_count
+        except: pass
     print("\n" + "="*60)
     print("🚀 SERVER STARTED")
     print(f"📚 Documents: {doc_count}")
