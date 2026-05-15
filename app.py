@@ -231,10 +231,10 @@ def upload_to_hf_dataset(file_path, filename):
     except:
         return False
 
-# ========== DDGS WEB SEARCH ==========
+# ========== WEB SEARCH ==========
 
 def search_web(query):
-    """Search the web using DDGS"""
+    """Search the web for real-time information"""
     try:
         from ddgs import DDGS
         results = []
@@ -242,7 +242,7 @@ def search_web(query):
             for r in ddgs.text(query, max_results=5):
                 results.append({"title": r.get("title", ""), "snippet": r.get("body", ""), "link": r.get("href", "")})
         if results:
-            print(f"✅ DDGS: {len(results)} results")
+            print(f"✅ DDGS: {len(results)} results for '{query[:60]}'")
             return results
     except:
         pass
@@ -253,34 +253,37 @@ def search_web(query):
             for r in ddgs.text(query, max_results=5):
                 results.append({"title": r.get("title", ""), "snippet": r.get("body", ""), "link": r.get("href", "")})
         if results:
-            print(f"✅ duckduckgo_search: {len(results)} results")
+            print(f"✅ duckduckgo_search: {len(results)} results for '{query[:60]}'")
             return results
     except:
         pass
+    print(f"❌ No search results for '{query[:60]}'")
     return None
 
-
-def needs_real_time_info(user_message):
-    """Detect if question needs web search"""
-    user_lower = user_message.lower()
+def should_search_web(user_message):
+    """Determine if question needs real-time web search"""
+    msg = user_message.lower()
     
-    # Person roles = always search
-    person_roles = ['president', 'prime minister', 'ceo', 'leader', 'king', 'queen', 
-                    'minister', 'governor', 'mayor', 'chancellor', 'chairman', 'director']
-    if any(role in user_lower for role in person_roles):
+    # ALWAYS search for these topics
+    always_search = [
+        'president', 'prime minister', 'chief minister', 'cm ', ' cm', 'governor',
+        'ceo', 'leader', 'king', 'queen', 'minister', 'mayor', 'chancellor',
+        'election', 'current', 'latest', 'today news', 'weather', 'stock',
+        'score', 'live', '2026', '2025', 'recent', 'breaking news',
+        'who is', 'who are', 'who was', 'which party', 'ruling party',
+    ]
+    if any(t in msg for t in always_search):
         return True
     
-    # Country names + who/what = search
-    countries = ['sri lanka', 'srilanka', 'india', 'usa', 'uk', 'china', 'australia', 
+    # If it asks about a location + political role
+    locations = ['sri lanka', 'srilanka', 'india', 'usa', 'uk', 'china', 'australia',
                 'canada', 'japan', 'france', 'germany', 'russia', 'brazil',
-                'pakistan', 'bangladesh', 'nepal', 'singapore', 'malaysia']
-    if any(c in user_lower for c in countries) and ('who' in user_lower or 'what' in user_lower):
+                'pakistan', 'bangladesh', 'nepal', 'singapore', 'malaysia',
+                'tamilnadu', 'tamil nadu', 'kerala', 'karnataka', 'delhi']
+    if any(l in msg for l in locations):
         return True
     
-    indicators = ['current', 'latest', 'today', 'now', '2025', '2026', '2027',
-                  'election', 'news', 'recent', 'weather', 'stock', 'price', 
-                  'live', 'update', 'currently', 'who is', 'who are']
-    return any(ind in user_lower for ind in indicators)
+    return False
 
 # ==================== ROUTES ====================
 
@@ -370,57 +373,56 @@ def chat():
         user_lower = user_message.lower().strip()
         msg_len = len(user_lower.split())
         
-        # Classification
-        question_words = ['what', 'who', 'where', 'when', 'why', 'how', 'which', 'whose', 'whom', 
-                         'can you', 'could you', 'tell me', 'explain', 'define', 'describe',
-                         'do you', 'is the', 'are the', 'is there', 'are there']
-        is_question = any(user_lower.startswith(q) for q in question_words) or user_lower.endswith('?')
+        # ========== STEP 1: CLASSIFY THE MESSAGE ==========
         
+        # Greetings
         greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening', 
                     'sup', 'yo', 'hola', 'hii', 'heyy', 'helloo', 'morning', 'evening']
         is_greeting = any(user_lower == g or user_lower.startswith(g + ' ') for g in greetings) and msg_len <= 3
         
+        # Short acknowledgments
         short_acks = ['ok', 'okay', 'k', 'fine', 'sure', 'yes', 'yeah', 'yep', 'no', 'nope', 
                      'right', 'got it', 'gotcha', 'understood', 'alright', 'cool', 'nice',
-                     'good', 'great', 'hmm', 'hm', 'ah', 'oh']
-        is_short_ack = user_lower in short_acks or (msg_len == 1 and not is_question)
+                     'good', 'great', 'hmm', 'hm', 'ah', 'oh', 'i see']
+        is_short_ack = user_lower in short_acks or msg_len == 1
         
+        # Thanks
         thanks_words = ['thank', 'thanks', 'thx', 'appreciate']
         is_thanks = any(t in user_lower for t in thanks_words) and msg_len <= 4
         
-        needs_realtime = needs_real_time_info(user_lower)
-        is_casual = is_greeting or is_thanks or is_short_ack
+        # About AI questions
+        identity_q = ['who are you', 'what are you', 'your name', 'about yourself', 
+                     'introduce yourself', 'who created you', 'are you ai', 'are you human']
+        location_q = ['where are you', 'where do you live', 'your country', 'your location']
+        is_about_ai = any(q in user_lower for q in identity_q) or any(q in user_lower for q in location_q)
+        
+        is_casual = is_greeting or is_short_ack or is_thanks or is_about_ai
         
         print(f"📝 {user_message[:80]}")
-        print(f"   is_casual={is_casual}, needs_realtime={needs_realtime}")
+        print(f"   is_casual={is_casual}")
         
-        # ========== PRIORITY 1: WEB SEARCH for real-time questions ==========
+        # ========== STEP 2: WEB SEARCH (for real-time questions) ==========
         web_results = None
-        if needs_realtime and not is_casual:
-            # SMART QUERY: extract key terms, remove filler words
-            search_query = user_message.lower()
-            filler_words = ['check the latest news and tell', 'can you check', 'please tell me', 
-                          'tell me', 'can you tell', 'do you know', 'i want to know',
-                          'check and tell', 'find and tell', 'search and tell',
-                          'look up and tell', 'google and tell']
-            for filler in filler_words:
-                search_query = search_query.replace(filler, '')
+        
+        if not is_casual and should_search_web(user_lower):
+            # Clean the query for better search results
+            search_query = user_message
+            cleanups = ['check the latest news and tell', 'can you check', 'please tell me', 
+                       'tell me', 'can you tell', 'do you know', 'i want to know',
+                       'check and tell', 'find and tell', 'search and tell', 'look up']
+            for c in cleanups:
+                search_query = search_query.lower().replace(c, '')
             search_query = re.sub(r'\s+', ' ', search_query).strip()
-            if not search_query or len(search_query) < 5:
+            if len(search_query) < 5:
                 search_query = user_message
             
-            print(f"🔍 Web search query: {search_query[:80]}")
+            print(f"🔍 Web search: {search_query[:80]}")
             web_results = search_web(search_query)
-            if web_results:
-                print(f"✅ {len(web_results)} results")
-                for i, r in enumerate(web_results):
-                    print(f"   [{i+1}] {r.get('title', 'N/A')[:100]}")
-            else:
-                print("⚠️ No web results")
         
-        # ========== PRIORITY 2: DOCUMENT SEARCH (only if no web results) ==========
+        # ========== STEP 3: DOCUMENT SEARCH (for non-real-time questions) ==========
         doc_context = ""
         sources = []
+        
         if qdrant_client and embedding_model and not is_casual and not web_results:
             try:
                 query_embedding = embedding_model.encode(user_message).tolist()
@@ -434,51 +436,86 @@ def chat():
                         if filename not in sources: sources.append(filename)
                         texts.append(payload.get('text', ''))
                     if texts: doc_context = "\n\n".join(texts[:3])
+                    print(f"📚 Found document context ({len(texts)} chunks)")
             except Exception as e:
-                print(f"Search error: {e}")
+                print(f"Document search error: {e}")
         
-        # ========== BUILD PROMPT ==========
+        # ========== STEP 4: BUILD THE RIGHT PROMPT ==========
+        
         if is_greeting:
-            system_prompt = "Friendly AI. SHORT greeting. 1 sentence."
+            system_prompt = "You are a friendly AI assistant. Give a SHORT warm greeting (1 sentence)."
             user_prompt = f"User: {user_message}\n\nShort greeting:"
             max_tokens = 50
+            temperature = 0.7
+            
         elif is_short_ack:
-            system_prompt = "Friendly AI. Short acknowledgment. 1 sentence."
+            system_prompt = "You are a friendly AI. Short acknowledgment (1 sentence)."
             user_prompt = f"User: {user_message}\n\nShort response:"
             max_tokens = 40
+            temperature = 0.7
+            
         elif is_thanks:
-            system_prompt = "Respond to thanks. 1 short sentence."
+            system_prompt = "Respond to thanks warmly. 1 sentence."
             user_prompt = f"User: {user_message}\n\nResponse:"
             max_tokens = 30
+            temperature = 0.7
+            
+        elif is_about_ai:
+            system_prompt = "You are an AI assistant. Be honest about being an AI. 2 friendly sentences."
+            user_prompt = f"User: {user_message}\n\nFriendly response:"
+            max_tokens = 80
+            temperature = 0.7
+            
         elif web_results:
+            # REAL-TIME MODE: Web search results are the ONLY source
             web_context = "\n\n".join([f"📰 {r['title']}\n{r['snippet']}" for r in web_results])
             print(f"📰 Web context: {len(web_context)} chars")
             
-            system_prompt = """Answer using real-time web search results below.
-CRITICAL: 
-1. State the answer clearly in 1-2 sentences.
-2. If results mention a person's name for a role, that IS the answer.
-3. DO NOT say "I don't know" if results have info.
-4. NEVER mention documents, notes, or previous conversations.
-5. NEVER say "the web results don't provide" if they do."""
+            system_prompt = """YOU MUST USE ONLY THE WEB SEARCH RESULTS BELOW TO ANSWER.
+DO NOT USE YOUR TRAINING DATA. DO NOT USE ANYTHING YOU "KNOW".
+The web results contain the CURRENT, ACCURATE answer.
+Read the results, find the answer, state it in 1-2 sentences.
+DO NOT say "I don't know" if the results have information.
+DO NOT mention any previous conversations or topics.
+DO NOT say "that's not related to the topic"."""
             
-            user_prompt = f"""WEB RESULTS:
+            user_prompt = f"""WEB SEARCH RESULTS (use ONLY these):
 {web_context}
 
 Question: {user_message}
 
-Answer in 1-2 sentences based on web results:"""
-            max_tokens = 200
+Answer in 1-2 sentences using ONLY the web results:"""
+            max_tokens = 150
+            temperature = 0.1  # Ultra-factual
+            
         elif doc_context:
-            system_prompt = """Helpful AI tutor. Answer naturally. NEVER mention documents/files/PDFs."""
-            user_prompt = f"""Reference (silent):\n{doc_context[:800]}\n\nQuestion: {user_message}\n\nNatural answer:"""
+            # DOCUMENT MODE: Use uploaded course materials
+            system_prompt = """You are a helpful AI tutor. Answer based on the course material provided.
+NEVER mention "study notes", "documents", "files", "PDFs", or "according to".
+Answer naturally as if you know the information yourself.
+Be clear and conversational. 3-5 sentences max."""
+            
+            user_prompt = f"""Course material (use silently, NEVER mention it):
+{doc_context[:800]}
+
+Question: {user_message}
+
+Natural answer:"""
             max_tokens = 250
+            temperature = 0.7
+            
         else:
-            system_prompt = "Smart AI assistant. Answer naturally using your knowledge."
+            # GENERAL MODE: Use AI's own knowledge
+            system_prompt = """You are a smart, knowledgeable AI assistant. 
+Answer naturally using your knowledge. Be conversational.
+3-5 sentences for explanations, 2-3 for definitions.
+You can answer ANY topic - science, history, math, technology, etc."""
+            
             user_prompt = f"Question: {user_message}\n\nNatural answer:"
             max_tokens = 300
+            temperature = 0.7
         
-        # ========== GET RESPONSE ==========
+        # ========== STEP 5: GET AI RESPONSE ==========
         response_text = None
         models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
         
@@ -486,8 +523,9 @@ Answer in 1-2 sentences based on web results:"""
             for model in models_to_try:
                 try:
                     response_text = groq_chat_completion(
-                        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                        model=model, max_tokens=max_tokens, temperature=0.3)
+                        messages=[{"role": "system", "content": system_prompt}, 
+                                 {"role": "user", "content": user_prompt}],
+                        model=model, max_tokens=max_tokens, temperature=temperature)
                     break
                 except: continue
         else:
@@ -495,24 +533,46 @@ Answer in 1-2 sentences based on web results:"""
                 try:
                     completion = groq_client.chat.completions.create(
                         model=model,
-                        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                        temperature=0.3, max_tokens=max_tokens)
+                        messages=[{"role": "system", "content": system_prompt}, 
+                                 {"role": "user", "content": user_prompt}],
+                        temperature=temperature, max_tokens=max_tokens)
                     response_text = completion.choices[0].message.content
                     break
                 except: continue
         
+        # ========== STEP 6: CLEAN RESPONSE ==========
         if response_text:
             response_text = re.sub(r'\*{1,3}', '', response_text)
             response_text = re.sub(r'#{1,4}\s*', '', response_text)
+            
+            # Remove ALL document/note mentions
+            bad_phrases = [
+                r"(?i).*study notes.*?\.\s*",
+                r"(?i).*the (documents?|files?|PDFs?|notes).*?\.\s*",
+                r"(?i).*according to.*?\.\s*",
+                r"(?i).*based on.*?\.\s*",
+                r"(?i).*reference material.*?\.\s*",
+                r"(?i).*course (materials?|notes).*?\.\s*",
+                r"(?i)that'?s not related to (the )?topic.*?\.\s*",
+                r"(?i)not related to (the |our |what ).*?\.\s*",
+                r"(?i)would you like to go back to.*?\?\s*",
+                r"(?i)going back to.*?\.\s*",
+                r"(?i)if you have (any )?questions on.*?[.!]\s*",
+                r"(?i)i'?d be happy to help with.*?[.!]\s*",
+                r"(?i)remote procedure call.*?[.!]\s*",
+            ]
+            for phrase in bad_phrases:
+                response_text = re.sub(phrase, '', response_text)
             response_text = response_text.strip()
             
+            # Safety nets
             if is_greeting and len(response_text) > 80:
                 response_text = "Hey there! 👋 How can I help you today?"
             if is_short_ack and len(response_text) > 60:
                 response_text = "Is there anything else I can help with? 😊"
             if is_thanks and len(response_text) > 40:
                 response_text = "You're welcome! 😊"
-            if not response_text:
+            if not response_text or len(response_text) < 2:
                 response_text = "How can I help you today?"
             
             return jsonify({
@@ -521,10 +581,11 @@ Answer in 1-2 sentences based on web results:"""
                 'mode': 'realtime' if web_results else ('study' if doc_context else 'general')
             })
         else:
-            return jsonify({'response': "I'm having trouble. Try again?"}), 500
+            return jsonify({'response': "I'm having trouble. Please try again!"}), 500
+            
     except Exception as e:
         print(f"Chat error: {e}")
-        return jsonify({'response': "Sorry, I encountered an issue. Please try again!"}), 500
+        return jsonify({'response': "Sorry, something went wrong. Please try again!"}), 500
 
 @app.route('/check-status', methods=['GET'])
 def check_status():
@@ -532,9 +593,14 @@ def check_status():
     if qdrant_client:
         try: doc_count = qdrant_client.get_collection("university_notes").points_count
         except: pass
-    return jsonify({'status': 'online', 'documents_available': doc_count > 0,
-                   'document_count': doc_count, 'api_connected': groq_connected,
-                   'qdrant_connected': qdrant_client is not None})
+    return jsonify({
+        'status': 'online',
+        'documents_available': doc_count > 0,
+        'document_count': doc_count,
+        'api_connected': groq_connected,
+        'qdrant_connected': qdrant_client is not None,
+        'web_search': 'DuckDuckGo (Free & Unlimited)'
+    })
 
 @app.route('/admin/documents', methods=['GET'])
 @admin_required
@@ -542,15 +608,20 @@ def get_documents():
     docs = []
     if qdrant_client:
         try:
-            scroll_results = qdrant_client.scroll(collection_name="university_notes", limit=100, with_payload=True, with_vectors=False)
+            scroll_results = qdrant_client.scroll(
+                collection_name="university_notes", limit=100, with_payload=True, with_vectors=False)
             seen = set()
             for point in scroll_results[0]:
                 filename = point.payload.get('filename', '')
                 if filename and filename not in seen:
                     seen.add(filename)
-                    docs.append({'filename': filename, 'file_type': point.payload.get('file_type', ''),
-                                'category': point.payload.get('category', ''), 'upload_date': point.payload.get('upload_date', ''),
-                                'doc_id': point.id, 'chunks': 1})
+                    docs.append({
+                        'filename': filename,
+                        'file_type': point.payload.get('file_type', ''),
+                        'category': point.payload.get('category', ''),
+                        'upload_date': point.payload.get('upload_date', ''),
+                        'doc_id': point.id, 'chunks': 1
+                    })
         except: pass
     return jsonify({'success': True, 'documents': docs})
 
@@ -558,7 +629,8 @@ def get_documents():
 @admin_required
 def delete_document(doc_id):
     try:
-        if qdrant_client: qdrant_client.delete(collection_name="university_notes", points_selector=[doc_id])
+        if qdrant_client:
+            qdrant_client.delete(collection_name="university_notes", points_selector=[doc_id])
         return jsonify({'success': True})
     except: return jsonify({'success': False}), 500
 
@@ -580,7 +652,7 @@ if __name__ == '__main__':
     print("\n" + "="*60)
     print("🚀 SERVER STARTED")
     print(f"📚 Documents: {doc_count}")
-    print(f"🔍 Web Search: DDGS (Free & Unlimited)")
+    print(f"🔍 Web Search: DuckDuckGo (Free & Unlimited)")
     print(f"🌐 http://0.0.0.0:{port}/")
     print("="*60 + "\n")
     app.run(host='0.0.0.0', port=port, debug=False)
