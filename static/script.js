@@ -2,11 +2,78 @@ const chatMessages = document.getElementById('chatMessages');
 const userInput = document.getElementById('userInput');
 const sendBtn = document.getElementById('sendBtn');
 const docStatus = document.getElementById('docStatus');
+const voiceBtn = document.getElementById('voiceBtn');
+const voiceStatus = document.getElementById('voiceStatus');
+const languageSelect = document.getElementById('languageSelect');
 
 let isProcessing = false;
+let isListening = false;
+let selectedLanguage = 'en';
+let recognition = null;
 
 // Initialize
 checkSystemStatus();
+initSpeechRecognition();
+
+function initSpeechRecognition() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    
+    if (SpeechRecognition) {
+        recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = true;
+        recognition.lang = selectedLanguage;
+        
+        recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            userInput.value = transcript;
+        };
+        
+        recognition.onend = () => {
+            stopListening();
+        };
+        
+        recognition.onerror = () => {
+            stopListening();
+        };
+    } else {
+        voiceBtn.style.display = 'none';
+        voiceStatus.textContent = 'Voice not supported';
+    }
+}
+
+function toggleVoiceInput() {
+    if (isListening) {
+        stopListening();
+    } else {
+        startListening();
+    }
+}
+
+function startListening() {
+    if (!recognition) return;
+    
+    recognition.lang = selectedLanguage;
+    isListening = true;
+    voiceBtn.classList.add('listening');
+    voiceBtn.innerHTML = '<i class="fas fa-microphone-slash"></i>';
+    voiceStatus.textContent = '🎙️ Listening...';
+    recognition.start();
+}
+
+function stopListening() {
+    isListening = false;
+    voiceBtn.classList.remove('listening');
+    voiceBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+    voiceStatus.textContent = 'Click 🎤 for voice';
+    if (recognition) recognition.stop();
+}
+
+function changeLanguage() {
+    selectedLanguage = languageSelect.value;
+    if (recognition) recognition.lang = selectedLanguage;
+    showToast(`Language: ${languageSelect.options[languageSelect.selectedIndex].text}`);
+}
 
 async function checkSystemStatus() {
     try {
@@ -56,14 +123,17 @@ async function sendMessage() {
         const response = await fetch('/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message })
+            body: JSON.stringify({ 
+                message: message,
+                language: selectedLanguage 
+            })
         });
         
         const data = await response.json();
         removeTypingIndicator(typingId);
         
         if (data.response) {
-            addMessage('bot', data.response, data.sources);
+            addMessage('bot', data.response, data.sources, data.chart_data, data.news_results);
         } else {
             addMessage('bot', 'Sorry, I encountered an error. Please try again.');
         }
@@ -77,16 +147,18 @@ async function sendMessage() {
     }
 }
 
-function addMessage(type, content, sources = null) {
+function addMessage(type, content, sources = null, chartData = null, newsResults = null) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${type}-message`;
     
     const avatarIcon = type === 'user' ? 'fa-user' : 'fa-robot';
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     
-    let sourcesHtml = '';
+    let extrasHtml = '';
+    
+    // Sources
     if (sources && sources.length > 0) {
-        sourcesHtml = `
+        extrasHtml += `
             <div class="message-sources">
                 <i class="fas fa-file-alt"></i>
                 Based on: ${sources.slice(0, 2).join(', ')}
@@ -94,7 +166,28 @@ function addMessage(type, content, sources = null) {
         `;
     }
     
-    // Format content with simple markdown-like parsing
+    // Chart
+    if (chartData) {
+        extrasHtml += `
+            <div class="chart-container">
+                <canvas id="chart-${Date.now()}"></canvas>
+            </div>
+        `;
+    }
+    
+    // News
+    if (newsResults && newsResults.length > 0) {
+        newsResults.forEach(news => {
+            extrasHtml += `
+                <div class="news-card">
+                    <div class="news-title">📰 ${news.title}</div>
+                    <div class="news-snippet">${news.snippet}</div>
+                    <div class="news-source">Source: ${news.source || 'Web'}</div>
+                </div>
+            `;
+        });
+    }
+    
     const formattedContent = formatMessage(content);
     
     messageDiv.innerHTML = `
@@ -104,7 +197,7 @@ function addMessage(type, content, sources = null) {
         <div class="message-bubble">
             <div class="message-text">${formattedContent}</div>
             <div class="message-time">${time}</div>
-            ${sourcesHtml}
+            ${extrasHtml}
         </div>
     `;
     
@@ -117,18 +210,57 @@ function addMessage(type, content, sources = null) {
     
     chatMessages.appendChild(messageDiv);
     scrollToBottom();
+    
+    // Render chart if present
+    if (chartData) {
+        setTimeout(() => renderChart(messageDiv.querySelector('canvas'), chartData), 100);
+    }
+}
+
+function renderChart(canvas, chartData) {
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    
+    // Simple bar chart using Canvas API (no library needed)
+    const data = chartData;
+    const labels = Object.keys(data);
+    const values = Object.values(data);
+    const maxVal = Math.max(...values);
+    
+    const width = canvas.parentElement.clientWidth - 30;
+    const height = 250;
+    canvas.width = width;
+    canvas.height = height;
+    
+    const barWidth = width / labels.length - 10;
+    const colors = ['#6366f1', '#06b6d4', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6'];
+    
+    // Draw bars
+    values.forEach((val, i) => {
+        const barHeight = (val / maxVal) * (height - 40);
+        const x = i * (barWidth + 10) + 10;
+        const y = height - barHeight - 20;
+        
+        ctx.fillStyle = colors[i % colors.length];
+        ctx.fillRect(x, y, barWidth, barHeight);
+        
+        // Label
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '10px Inter';
+        ctx.textAlign = 'center';
+        ctx.fillText(labels[i].substring(0, 10), x + barWidth / 2, height - 5);
+        
+        // Value
+        ctx.fillStyle = '#f1f5f9';
+        ctx.font = '11px Inter';
+        ctx.fillText(val, x + barWidth / 2, y - 5);
+    });
 }
 
 function formatMessage(text) {
-    // Convert URLs to links
     text = text.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" style="color: #818cf8;">$1</a>');
-    
-    // Convert bold text
     text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    
-    // Convert line breaks
     text = text.replace(/\n/g, '<br>');
-    
     return text;
 }
 
@@ -218,3 +350,21 @@ style.textContent = `
     }
 `;
 document.head.appendChild(style);
+
+function showToast(message) {
+    const toast = document.createElement('div');
+    toast.style.cssText = `
+        position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+        background: var(--primary); color: white; padding: 10px 20px;
+        border-radius: 20px; font-size: 13px; z-index: 1000;
+        animation: fadeSlide 0.3s ease;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    `;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.3s';
+        setTimeout(() => toast.remove(), 300);
+    }, 2000);
+}

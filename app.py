@@ -253,7 +253,7 @@ def upload_to_hf_dataset(file_path, filename):
         print(f"⚠️ HF backup failed: {e}")
         return False
 
-# ========== DUCKDUCKGO WEB SEARCH (FREE & UNLIMITED - NO API KEY) ==========
+# ========== DUCKDUCKGO WEB SEARCH ==========
 
 def search_web(query):
     """Search the web using DuckDuckGo - completely free, no API key needed"""
@@ -277,6 +277,77 @@ def search_web(query):
     except Exception as e:
         print(f"DuckDuckGo search error: {e}")
         return None
+
+# ========== MULTI-SOURCE NEWS SEARCH ==========
+
+def search_multi_news(query):
+    """Search multiple sources for news"""
+    all_results = []
+    
+    # Source 1: DuckDuckGo News
+    try:
+        from duckduckgo_search import DDGS
+        with DDGS() as ddgs:
+            news_results = list(ddgs.news(query, max_results=2))
+            for r in news_results:
+                all_results.append({
+                    "title": r.get("title", ""),
+                    "snippet": r.get("body", ""),
+                    "source": "DuckDuckGo News",
+                    "link": r.get("url", "")
+                })
+    except:
+        pass
+    
+    # Source 2: Wikipedia
+    try:
+        wiki_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{query.replace(' ', '_')}"
+        wiki_response = requests.get(wiki_url, timeout=5)
+        if wiki_response.status_code == 200:
+            wiki_data = wiki_response.json()
+            all_results.append({
+                "title": wiki_data.get("title", query),
+                "snippet": wiki_data.get("extract", "")[:500],
+                "source": "Wikipedia",
+                "link": wiki_data.get("content_urls", {}).get("desktop", {}).get("page", "")
+            })
+    except:
+        pass
+    
+    return all_results if all_results else None
+
+# ========== CHART DATA EXTRACTION ==========
+
+def extract_chart_data(user_message, web_results):
+    """Extract numerical data for chart visualization"""
+    user_lower = user_message.lower()
+    
+    chart_triggers = ['compare', 'comparison', 'chart', 'graph', 'statistics', 'data', 'numbers', 
+                      'population', 'gdp', 'price', 'percentage', 'how many', 'how much']
+    
+    if not any(trigger in user_lower for trigger in chart_triggers):
+        return None
+    
+    chart_data = {}
+    if web_results:
+        for r in web_results:
+            snippet = r.get('snippet', '')
+            pairs = re.findall(r'(\w+(?:\s+\w+)?)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*(?:million|billion|%|percent)?', snippet, re.IGNORECASE)
+            for label, value in pairs[:3]:
+                chart_data[label.strip()] = float(value)
+    
+    return chart_data if len(chart_data) >= 2 else None
+
+# ========== MULTI-LANGUAGE SUPPORT ==========
+
+def get_language_name(lang_code):
+    """Get full language name from code"""
+    lang_map = {
+        'en': 'English', 'si': 'Sinhala', 'ta': 'Tamil', 'fr': 'French',
+        'es': 'Spanish', 'de': 'German', 'zh': 'Chinese', 'ja': 'Japanese',
+        'ko': 'Korean', 'ar': 'Arabic'
+    }
+    return lang_map.get(lang_code, 'English')
 
 def needs_real_time_info(user_message):
     """Detect if the question needs real-time/current information"""
@@ -403,6 +474,7 @@ def chat():
     try:
         data = request.json
         user_message = data.get('message', '').strip()
+        target_language = data.get('language', 'en')
         
         if not user_message:
             return jsonify({'response': 'Please type a message.'}), 400
@@ -410,6 +482,7 @@ def chat():
             return jsonify({'response': 'AI service not available.'}), 500
         
         user_lower = user_message.lower().strip()
+        lang_name = get_language_name(target_language)
         
         # Classification
         question_words = ['what', 'who', 'where', 'when', 'why', 'how', 'which', 'whose', 'whom', 'can you', 'could you', 'tell me', 'explain', 'define', 'describe']
@@ -433,16 +506,24 @@ def chat():
         needs_realtime = needs_real_time_info(user_message)
         is_casual = is_greeting or is_thanks or is_about_ai or is_user_personal
         
-        # ========== WEB SEARCH FOR REAL-TIME INFO ==========
+        # ========== WEB SEARCH ==========
         web_results = None
+        news_results = None
+        chart_data = None
+        
         if needs_realtime and not is_casual:
             search_query = user_message
-            if 'president' in user_lower or 'prime minister' in user_lower or 'leader' in user_lower or 'election' in user_lower:
+            if 'president' in user_lower or 'prime minister' in user_lower or 'leader' in user_lower or 'election' in user_lower or 'news' in user_lower:
                 search_query = f"{user_message} 2025 current"
-            print(f"🔍 Searching DDG for: {search_query}")
+            
+            print(f"🔍 Searching web for: {search_query}")
             web_results = search_web(search_query)
             if web_results:
-                print(f"✅ Found {len(web_results)} DDG results")
+                print(f"✅ Found {len(web_results)} web results")
+                chart_data = extract_chart_data(user_message, web_results)
+            
+            # Multi-source news
+            news_results = search_multi_news(search_query)
         
         # ========== SEARCH DOCUMENTS ==========
         doc_context = ""
@@ -470,28 +551,28 @@ def chat():
         # ========== BUILD PROMPT ==========
         
         if is_greeting:
-            system_prompt = "You are a friendly AI assistant. Respond with a SHORT, warm greeting. 1 sentence only."
-            user_prompt = f"User: {user_message}\n\nShort greeting:"
+            system_prompt = f"You are a friendly AI assistant. Respond with a SHORT, warm greeting in {lang_name}. 1 sentence only."
+            user_prompt = f"User: {user_message}\n\nShort greeting in {lang_name}:"
             max_tokens = 50
             
         elif is_identity:
-            system_prompt = """You are an AI assistant. Tell them: You're an AI created to help people learn. No physical form. 2-3 friendly sentences."""
-            user_prompt = f"User: {user_message}\n\nFriendly AI response:"
+            system_prompt = f"""You are an AI assistant. Answer in {lang_name}. Tell them: You're an AI created to help people learn. No physical form. 2-3 friendly sentences."""
+            user_prompt = f"User: {user_message}\n\nFriendly AI response in {lang_name}:"
             max_tokens = 100
             
         elif is_location:
-            system_prompt = """You are an AI assistant. Explain you don't have a physical location - you exist in the cloud. 2 friendly sentences."""
-            user_prompt = f"User: {user_message}\n\nFriendly response:"
+            system_prompt = f"""You are an AI assistant. Answer in {lang_name}. Explain you don't have a physical location - you exist in the cloud. 2 friendly sentences."""
+            user_prompt = f"User: {user_message}\n\nFriendly response in {lang_name}:"
             max_tokens = 80
             
         elif is_user_personal:
-            system_prompt = "You are an AI assistant. Honestly say you don't know their name but you're happy to help. 2 friendly sentences."
-            user_prompt = f"User: {user_message}\n\nHonest response:"
+            system_prompt = f"You are an AI assistant. Answer in {lang_name}. Honestly say you don't know their name but you're happy to help. 2 friendly sentences."
+            user_prompt = f"User: {user_message}\n\nHonest response in {lang_name}:"
             max_tokens = 60
             
         elif is_thanks:
-            system_prompt = "Respond to thanks warmly in 1 short sentence."
-            user_prompt = f"User: {user_message}\n\nResponse:"
+            system_prompt = f"Respond to thanks warmly in {lang_name}. 1 very short sentence."
+            user_prompt = f"User: {user_message}\n\nResponse in {lang_name}:"
             max_tokens = 30
             
         elif web_results:
@@ -499,7 +580,7 @@ def chat():
             for r in web_results:
                 web_context += f"📰 {r.get('title', '')}: {r.get('snippet', '')}\n\n"
             
-            system_prompt = """You are a knowledgeable AI assistant with access to real-time web search results.
+            system_prompt = f"""You are a knowledgeable AI assistant with access to real-time web search results. Answer in {lang_name}.
 
 CRITICAL RULES:
 1. Answer based on the REAL-TIME web search results provided below.
@@ -515,11 +596,11 @@ CRITICAL RULES:
 
 Question: {user_message}
 
-Give an accurate, up-to-date answer based on these real-time results:"""
+Give an accurate, up-to-date answer in {lang_name} based on these real-time results:"""
             max_tokens = 250
             
         elif doc_context:
-            system_prompt = """You are a helpful AI tutor. Answer naturally.
+            system_prompt = f"""You are a helpful AI tutor. Answer naturally in {lang_name}.
 CRITICAL: NEVER mention "study notes", "documents", "files", or "PDFs".
 Just give the answer as if you know it yourself. Be clear and conversational. 3-5 sentences max."""
             
@@ -528,15 +609,15 @@ Just give the answer as if you know it yourself. Be clear and conversational. 3-
 
 Question: {user_message}
 
-Natural answer:"""
+Natural answer in {lang_name}:"""
             max_tokens = 250
             
         else:
-            system_prompt = """You are a smart, knowledgeable AI assistant. Answer naturally using your knowledge.
+            system_prompt = f"""You are a smart, knowledgeable AI assistant. Answer naturally in {lang_name} using your knowledge.
 Be conversational. 3-5 sentences for explanations, 2-3 for definitions.
 You can answer ANY topic - science, history, math, technology, etc."""
             
-            user_prompt = f"Question: {user_message}\n\nNatural answer:"
+            user_prompt = f"Question: {user_message}\n\nNatural answer in {lang_name}:"
             max_tokens = 300
         
         # ========== GET RESPONSE ==========
@@ -594,7 +675,9 @@ You can answer ANY topic - science, history, math, technology, etc."""
             return jsonify({
                 'response': response_text,
                 'sources': [],
-                'mode': 'realtime' if web_results else ('study' if doc_context else 'general')
+                'mode': 'realtime' if web_results else ('study' if doc_context else 'general'),
+                'chart_data': chart_data,
+                'news_results': news_results
             })
         else:
             return jsonify({'response': "I'm having trouble right now. Could you try asking again?"}), 500
@@ -618,7 +701,8 @@ def check_status():
         'document_count': doc_count,
         'api_connected': groq_connected,
         'qdrant_connected': qdrant_client is not None,
-        'web_search': 'DuckDuckGo (Free & Unlimited)'
+        'web_search': 'DuckDuckGo (Free & Unlimited)',
+        'features': ['voice_input', 'multi_language', 'charts', 'multi_news']
     })
 
 @app.route('/admin/documents', methods=['GET'])
@@ -682,6 +766,10 @@ if __name__ == '__main__':
     print("🚀 SERVER STARTED")
     print(f"📚 Documents: {doc_count}")
     print(f"🔍 Web Search: DuckDuckGo (Free & Unlimited)")
+    print(f"🌍 Multi-Language: 10 languages")
+    print(f"🎤 Voice Input: Enabled")
+    print(f"📊 Charts: Enabled")
+    print(f"📰 Multi-News: DuckDuckGo + Wikipedia")
     print(f"🌐 http://0.0.0.0:{port}/")
     print("="*60 + "\n")
     app.run(host='0.0.0.0', port=port, debug=False)

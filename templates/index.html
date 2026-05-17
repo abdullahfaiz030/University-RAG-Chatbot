@@ -27,6 +27,19 @@
                 </div>
             </div>
             <div class="header-actions">
+                <!-- Language Selector -->
+                <select id="languageSelect" onchange="changeLanguage()" class="lang-select" title="Select Language">
+                    <option value="en">🇬🇧 EN</option>
+                    <option value="si">🇱🇰 සිංහල</option>
+                    <option value="ta">🇱🇰 தமிழ்</option>
+                    <option value="fr">🇫🇷 FR</option>
+                    <option value="es">🇪🇸 ES</option>
+                    <option value="de">🇩🇪 DE</option>
+                    <option value="zh">🇨🇳 中文</option>
+                    <option value="ja">🇯🇵 日本語</option>
+                    <option value="ko">🇰🇷 한국어</option>
+                    <option value="ar">🇸🇦 العربية</option>
+                </select>
                 <button class="new-chat-btn" onclick="startNewChat()" title="New Conversation">
                     <i class="fas fa-plus"></i>
                 </button>
@@ -61,6 +74,10 @@
         <!-- ========== INPUT AREA ========== -->
         <div class="chat-input-area">
             <div class="input-wrapper">
+                <!-- Voice Input Button -->
+                <button class="voice-btn" id="voiceBtn" onclick="toggleVoiceInput()" title="Voice Input">
+                    <i class="fas fa-microphone"></i>
+                </button>
                 <textarea 
                     id="userInput" 
                     placeholder="Ask me anything about your course materials..."
@@ -72,7 +89,7 @@
                 </button>
             </div>
             <div class="input-hint">
-                <i class="fas fa-shield-alt"></i> Your questions are private • Powered by AI
+                <i class="fas fa-shield-alt"></i> Your questions are private • Powered by AI • <span id="voiceStatus">Click 🎤 for voice</span>
             </div>
         </div>
     </div>
