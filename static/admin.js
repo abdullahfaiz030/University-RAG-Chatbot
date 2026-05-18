@@ -97,19 +97,32 @@ function countFolderItems(structure) {
     return total;
 }
 
-// ============ NAVIGATION ============
+// ============ NAVIGATION (FIXED) ============
 
 function goToPath(type, depth) {
+    console.log(`goToPath: type=${type}, depth=${depth}`);
+    
     if (type === 'upload') {
-        uploadPath = (depth === 0) ? [] : uploadPath.slice(0, depth);
+        if (depth === 0) {
+            uploadPath = [];
+        } else if (depth <= uploadPath.length) {
+            uploadPath = uploadPath.slice(0, depth);
+        }
+        console.log('Upload path now:', uploadPath);
         renderUploadFolders();
     } else if (type === 'browse') {
-        browsePath = (depth === 0) ? [] : browsePath.slice(0, depth);
+        if (depth === 0) {
+            browsePath = [];
+        } else if (depth <= browsePath.length) {
+            browsePath = browsePath.slice(0, depth);
+        }
+        console.log('Browse path now:', browsePath);
         renderBrowseView();
     }
 }
 
 function enterFolder(type, folderName) {
+    console.log(`enterFolder: type=${type}, name=${folderName}`);
     if (type === 'upload') {
         uploadPath.push(folderName);
         renderUploadFolders();
@@ -267,7 +280,7 @@ function renderBrowseFiles() {
     `).join('');
 }
 
-// ============ BREADCRUMB (Single function for both) ============
+// ============ BREADCRUMB (FIXED - Proper Back Navigation) ============
 
 function updateBreadcrumb(type) {
     const path = (type === 'upload') ? uploadPath : browsePath;
@@ -275,15 +288,24 @@ function updateBreadcrumb(type) {
     const breadcrumb = document.getElementById(breadcrumbId);
     if (!breadcrumb) return;
     
-    let html = `<span style="color: var(--primary-light); cursor: pointer; font-weight: 500;" onclick="goToPath('${type}', 0)">🏠 Root</span>`;
+    // Root link - always visible, always goes to depth 0 (empty array)
+    let html = `<span onclick="window.goToBreadcrumb('${type}', 0)" style="color: var(--primary-light); cursor: pointer; font-weight: 500; padding: 4px 8px; border-radius: 6px; display: inline-block;" onmouseover="this.style.background='rgba(99,102,241,0.15)'" onmouseout="this.style.background='transparent'">🏠 Root</span>`;
     
+    // Each folder in path - click goes to that specific depth
     path.forEach((part, index) => {
+        const depth = index + 1; // depth 1 = keep first folder, depth 2 = keep first two folders
         html += ` <span style="color: var(--text-secondary);">›</span> `;
-        html += `<span style="color: var(--primary-light); cursor: pointer; font-weight: 500;" onclick="goToPath('${type}', ${index + 1})">📁 ${part}</span>`;
+        html += `<span onclick="window.goToBreadcrumb('${type}', ${depth})" style="color: var(--primary-light); cursor: pointer; font-weight: 500; padding: 4px 8px; border-radius: 6px; display: inline-block;" onmouseover="this.style.background='rgba(99,102,241,0.15)'" onmouseout="this.style.background='transparent'">📁 ${part}</span>`;
     });
     
     breadcrumb.innerHTML = html;
 }
+
+// Make goToBreadcrumb globally accessible for onclick handlers
+window.goToBreadcrumb = function(type, depth) {
+    console.log(`Breadcrumb clicked: type=${type}, depth=${depth}`);
+    goToPath(type, depth);
+};
 
 // ============ CREATE FOLDER ============
 
@@ -393,7 +415,6 @@ function deleteFolder(folderName) {
         delete current[folderName];
     }
     
-    // If we deleted the current folder, go back
     if (browsePath.length > 0 && browsePath[browsePath.length - 1] === folderName) {
         browsePath.pop();
     }
