@@ -5,39 +5,15 @@ let folderStructure = {};
 // Navigation state
 let uploadPath = [];
 let browsePath = [];
-let isRestoringHistory = false;
-
-function getBrowseStateUrl() {
-    const encodedPath = browsePath.map(part => encodeURIComponent(part)).join('/');
-    return `${location.pathname}#browse${encodedPath ? '/' + encodedPath : ''}`;
-}
-
-function pushBrowseHistory() {
-    if (!window.history || isRestoringHistory) return;
-    const state = { type: 'browse', path: [...browsePath] };
-    const url = getBrowseStateUrl();
-    window.history.pushState(state, '', url);
-}
-
-window.addEventListener('popstate', (event) => {
-    if (event.state && event.state.type === 'browse') {
-        isRestoringHistory = true;
-        browsePath = Array.isArray(event.state.path) ? [...event.state.path] : [];
-        if (!document.getElementById('browse-section')?.classList.contains('active')) {
-            showSection('browse');
-        } else {
-            renderBrowseView();
-        }
-        isRestoringHistory = false;
-    }
-});
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     setupUploadZone();
     loadFolderStructure();
     loadStats();
-    window.history.replaceState({ type: 'browse', path: [] }, '', getBrowseStateUrl());
+    
+    // Setup breadcrumb event delegation
+    setupBreadcrumbListeners();
 });
 
 function showSection(sectionName) {
@@ -124,41 +100,27 @@ function countFolderItems(structure) {
     return total;
 }
 
-// ============ NAVIGATION (FIXED) ============
+// ============ EVENT DELEGATION FOR BREADCRUMBS ============
 
-function goToPath(type, depth) {
-    console.log(`goToPath: type=${type}, depth=${depth}`);
-    
-    if (type === 'upload') {
-        if (depth === 0) {
-            uploadPath = [];
-        } else if (depth <= uploadPath.length) {
-            uploadPath = uploadPath.slice(0, depth);
+function setupBreadcrumbListeners() {
+    // Listen for clicks on upload breadcrumb
+    document.addEventListener('click', function(e) {
+        const target = e.target.closest('.breadcrumb-click');
+        if (!target) return;
+        
+        const type = target.dataset.breadcrumbType;
+        const depth = parseInt(target.dataset.breadcrumbDepth);
+        
+        console.log(`Breadcrumb clicked via delegation: type=${type}, depth=${depth}`);
+        
+        if (type === 'upload') {
+            uploadPath = (depth === 0) ? [] : uploadPath.slice(0, depth);
+            renderUploadFolders();
+        } else if (type === 'browse') {
+            browsePath = (depth === 0) ? [] : browsePath.slice(0, depth);
+            renderBrowseView();
         }
-        console.log('Upload path now:', uploadPath);
-        renderUploadFolders();
-    } else if (type === 'browse') {
-        if (depth === 0) {
-            browsePath = [];
-        } else if (depth <= browsePath.length) {
-            browsePath = browsePath.slice(0, depth);
-        }
-        console.log('Browse path now:', browsePath);
-        renderBrowseView();
-        pushBrowseHistory();
-    }
-}
-
-function enterFolder(type, folderName) {
-    console.log(`enterFolder: type=${type}, name=${folderName}`);
-    if (type === 'upload') {
-        uploadPath.push(folderName);
-        renderUploadFolders();
-    } else if (type === 'browse') {
-        browsePath.push(folderName);
-        renderBrowseView();
-        pushBrowseHistory();
-    }
+    });
 }
 
 // ============ UPLOAD SECTION ============
@@ -186,7 +148,7 @@ function renderUploadFolders() {
         `;
     } else {
         container.innerHTML = folders.map(([name, folder]) => `
-            <div class="folder-card" onclick="enterFolder('upload', '${name.replace(/'/g, "\\'")}')">
+            <div class="folder-card" onclick="window.enterUploadFolder('${name.replace(/'/g, "\\'")}')">
                 <i class="fas fa-folder folder-icon" style="color: ${getFolderColor(name)};"></i>
                 <div class="folder-name">${name}</div>
                 <div class="folder-info">${folder.totalItems || 0} items</div>
@@ -195,6 +157,11 @@ function renderUploadFolders() {
         `).join('');
     }
 }
+
+window.enterUploadFolder = function(folderName) {
+    uploadPath.push(folderName);
+    renderUploadFolders();
+};
 
 // ============ BROWSE SECTION ============
 
@@ -238,7 +205,7 @@ function renderBrowseFolders() {
                 </div>
                 <span class="folder-badge">${folder.totalItems || 0}</span>
                 <div style="display: flex; gap: 6px; margin-top: 8px;">
-                    <button class="action-btn" onclick="event.stopPropagation(); enterFolder('browse', '${name.replace(/'/g, "\\'")}')" style="flex: 1;">
+                    <button class="action-btn" onclick="event.stopPropagation(); window.enterBrowseFolder('${name.replace(/'/g, "\\'")}')" style="flex: 1;">
                         <i class="fas fa-arrow-right"></i> Open
                     </button>
                     <button class="action-btn" onclick="event.stopPropagation(); renameFolder('${name.replace(/'/g, "\\'")}')" title="Rename">
@@ -252,6 +219,11 @@ function renderBrowseFolders() {
         `).join('');
     }
 }
+
+window.enterBrowseFolder = function(folderName) {
+    browsePath.push(folderName);
+    renderBrowseView();
+};
 
 function renderBrowseFiles() {
     const container = document.getElementById('browseFiles');
@@ -309,7 +281,7 @@ function renderBrowseFiles() {
     `).join('');
 }
 
-// ============ BREADCRUMB (FIXED - Proper Back Navigation) ============
+// ============ BREADCRUMB (USES DATA ATTRIBUTES) ============
 
 function updateBreadcrumb(type) {
     const path = (type === 'upload') ? uploadPath : browsePath;
@@ -317,24 +289,17 @@ function updateBreadcrumb(type) {
     const breadcrumb = document.getElementById(breadcrumbId);
     if (!breadcrumb) return;
     
-    // Root link - always visible, always goes to depth 0 (empty array)
-    let html = `<span onclick="window.goToBreadcrumb('${type}', 0)" style="color: var(--primary-light); cursor: pointer; font-weight: 500; padding: 4px 8px; border-radius: 6px; display: inline-block;" onmouseover="this.style.background='rgba(99,102,241,0.15)'" onmouseout="this.style.background='transparent'">🏠 Root</span>`;
+    // Build HTML with data attributes for event delegation
+    let html = `<span class="breadcrumb-click" data-breadcrumb-type="${type}" data-breadcrumb-depth="0" style="color: var(--primary-light); cursor: pointer; font-weight: 500; padding: 4px 8px; border-radius: 6px; display: inline-block;">🏠 Root</span>`;
     
-    // Each folder in path - click goes to that specific depth
     path.forEach((part, index) => {
-        const depth = index + 1; // depth 1 = keep first folder, depth 2 = keep first two folders
+        const depth = index + 1;
         html += ` <span style="color: var(--text-secondary);">›</span> `;
-        html += `<span onclick="window.goToBreadcrumb('${type}', ${depth})" style="color: var(--primary-light); cursor: pointer; font-weight: 500; padding: 4px 8px; border-radius: 6px; display: inline-block;" onmouseover="this.style.background='rgba(99,102,241,0.15)'" onmouseout="this.style.background='transparent'">📁 ${part}</span>`;
+        html += `<span class="breadcrumb-click" data-breadcrumb-type="${type}" data-breadcrumb-depth="${depth}" style="color: var(--primary-light); cursor: pointer; font-weight: 500; padding: 4px 8px; border-radius: 6px; display: inline-block;">📁 ${part}</span>`;
     });
     
     breadcrumb.innerHTML = html;
 }
-
-// Make goToBreadcrumb globally accessible for onclick handlers
-window.goToBreadcrumb = function(type, depth) {
-    console.log(`Breadcrumb clicked: type=${type}, depth=${depth}`);
-    goToPath(type, depth);
-};
 
 // ============ CREATE FOLDER ============
 
