@@ -5,12 +5,39 @@ let folderStructure = {};
 // Navigation state
 let uploadPath = [];
 let browsePath = [];
+let isRestoringHistory = false;
+
+function getBrowseStateUrl() {
+    const encodedPath = browsePath.map(part => encodeURIComponent(part)).join('/');
+    return `${location.pathname}#browse${encodedPath ? '/' + encodedPath : ''}`;
+}
+
+function pushBrowseHistory() {
+    if (!window.history || isRestoringHistory) return;
+    const state = { type: 'browse', path: [...browsePath] };
+    const url = getBrowseStateUrl();
+    window.history.pushState(state, '', url);
+}
+
+window.addEventListener('popstate', (event) => {
+    if (event.state && event.state.type === 'browse') {
+        isRestoringHistory = true;
+        browsePath = Array.isArray(event.state.path) ? [...event.state.path] : [];
+        if (!document.getElementById('browse-section')?.classList.contains('active')) {
+            showSection('browse');
+        } else {
+            renderBrowseView();
+        }
+        isRestoringHistory = false;
+    }
+});
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     setupUploadZone();
     loadFolderStructure();
     loadStats();
+    window.history.replaceState({ type: 'browse', path: [] }, '', getBrowseStateUrl());
 });
 
 function showSection(sectionName) {
@@ -118,6 +145,7 @@ function goToPath(type, depth) {
         }
         console.log('Browse path now:', browsePath);
         renderBrowseView();
+        pushBrowseHistory();
     }
 }
 
@@ -129,6 +157,7 @@ function enterFolder(type, folderName) {
     } else if (type === 'browse') {
         browsePath.push(folderName);
         renderBrowseView();
+        pushBrowseHistory();
     }
 }
 
