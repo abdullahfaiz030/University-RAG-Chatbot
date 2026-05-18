@@ -253,10 +253,10 @@ def upload_to_hf_dataset(file_path, filename):
         print(f"⚠️ HF backup failed: {e}")
         return False
 
-# ========== DUCKDUCKGO WEB SEARCH ==========
+# ========== WEB SEARCH ENGINE #1: DUCKDUCKGO ==========
 
-def search_web(query):
-    """Search the web using DuckDuckGo - completely free, no API key needed"""
+def search_duckduckgo(query):
+    """Search using DuckDuckGo - Free, no API key"""
     try:
         from duckduckgo_search import DDGS
         
@@ -267,24 +267,98 @@ def search_web(query):
                 results.append({
                     "title": r.get("title", ""),
                     "snippet": r.get("body", ""),
-                    "link": r.get("href", "")
+                    "link": r.get("href", ""),
+                    "source": "DuckDuckGo"
                 })
-        
         return results if results else None
     except ImportError:
         print("⚠️ duckduckgo-search not installed")
         return None
     except Exception as e:
-        print(f"DuckDuckGo search error: {e}")
+        print(f"DuckDuckGo error: {e}")
         return None
 
-# ========== MULTI-SOURCE NEWS SEARCH ==========
+# ========== WEB SEARCH ENGINE #2: WIKIPEDIA ==========
+
+def search_wikipedia(query):
+    """Search Wikipedia - Free, no API key"""
+    try:
+        wiki_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{requests.utils.quote(query)}"
+        wiki_response = requests.get(wiki_url, timeout=8)
+        if wiki_response.status_code == 200:
+            wiki_data = wiki_response.json()
+            return [{
+                "title": wiki_data.get("title", query),
+                "snippet": wiki_data.get("extract", "")[:500],
+                "source": "Wikipedia",
+                "link": wiki_data.get("content_urls", {}).get("desktop", {}).get("page", "")
+            }]
+        return None
+    except:
+        return None
+
+# ========== WEB SEARCH ENGINE #3: ANYSEARCH (BACKUP) ==========
+
+def search_anysearch(query):
+    """Search using AnySearch MCP - Free, no API key"""
+    try:
+        url = "https://anysearch-mcp.khulnasoft.com/search"
+        payload = {
+            "query": query,
+            "limit": 3
+        }
+        response = requests.post(url, json=payload, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            results = []
+            for item in data.get("results", [])[:3]:
+                results.append({
+                    "title": item.get("title", ""),
+                    "snippet": item.get("snippet", ""),
+                    "link": item.get("url", ""),
+                    "source": "AnySearch"
+                })
+            return results if results else None
+        return None
+    except:
+        return None
+
+# ========== MASTER SEARCH FUNCTION ==========
+
+def search_web(query):
+    """Search using ALL free engines - returns combined results"""
+    all_results = []
+    
+    # Try DuckDuckGo first
+    print("🔍 Trying DuckDuckGo...")
+    ddg_results = search_duckduckgo(query)
+    if ddg_results:
+        all_results.extend(ddg_results)
+        print(f"  ✅ DuckDuckGo: {len(ddg_results)} results")
+    
+    # Try Wikipedia
+    print("🔍 Trying Wikipedia...")
+    wiki_results = search_wikipedia(query)
+    if wiki_results:
+        all_results.extend(wiki_results)
+        print(f"  ✅ Wikipedia: {len(wiki_results)} results")
+    
+    # Try AnySearch as backup
+    if len(all_results) < 2:
+        print("🔍 Trying AnySearch (backup)...")
+        any_results = search_anysearch(query)
+        if any_results:
+            all_results.extend(any_results)
+            print(f"  ✅ AnySearch: {len(any_results)} results")
+    
+    return all_results if all_results else None
+
+# ========== MULTI-SOURCE NEWS ==========
 
 def search_multi_news(query):
     """Search multiple sources for news"""
     all_results = []
     
-    # Source 1: DuckDuckGo News
     try:
         from duckduckgo_search import DDGS
         with DDGS() as ddgs:
@@ -299,24 +373,9 @@ def search_multi_news(query):
     except:
         pass
     
-    # Source 2: Wikipedia
-    try:
-        wiki_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{query.replace(' ', '_')}"
-        wiki_response = requests.get(wiki_url, timeout=5)
-        if wiki_response.status_code == 200:
-            wiki_data = wiki_response.json()
-            all_results.append({
-                "title": wiki_data.get("title", query),
-                "snippet": wiki_data.get("extract", "")[:500],
-                "source": "Wikipedia",
-                "link": wiki_data.get("content_urls", {}).get("desktop", {}).get("page", "")
-            })
-    except:
-        pass
-    
     return all_results if all_results else None
 
-# ========== CHART DATA EXTRACTION ==========
+# ========== CHART DATA ==========
 
 def extract_chart_data(user_message, web_results):
     """Extract numerical data for chart visualization"""
@@ -338,10 +397,9 @@ def extract_chart_data(user_message, web_results):
     
     return chart_data if len(chart_data) >= 2 else None
 
-# ========== MULTI-LANGUAGE SUPPORT ==========
+# ========== LANGUAGE SUPPORT ==========
 
 def get_language_name(lang_code):
-    """Get full language name from code"""
     lang_map = {
         'en': 'English', 'si': 'Sinhala', 'ta': 'Tamil', 'fr': 'French',
         'es': 'Spanish', 'de': 'German', 'zh': 'Chinese', 'ja': 'Japanese',
@@ -516,13 +574,12 @@ def chat():
             if 'president' in user_lower or 'prime minister' in user_lower or 'leader' in user_lower or 'election' in user_lower or 'news' in user_lower:
                 search_query = f"{user_message} 2025 current"
             
-            print(f"🔍 Searching web for: {search_query}")
+            print(f"🔍 Searching ALL engines for: {search_query}")
             web_results = search_web(search_query)
             if web_results:
-                print(f"✅ Found {len(web_results)} web results")
+                print(f"✅ Total combined results: {len(web_results)}")
                 chart_data = extract_chart_data(user_message, web_results)
             
-            # Multi-source news
             news_results = search_multi_news(search_query)
         
         # ========== SEARCH DOCUMENTS ==========
@@ -577,10 +634,10 @@ def chat():
             
         elif web_results:
             web_context = ""
-            for r in web_results:
-                web_context += f"📰 {r.get('title', '')}: {r.get('snippet', '')}\n\n"
+            for r in web_results[:5]:  # Show top 5 from all sources
+                web_context += f"📰 [{r.get('source', 'Web')}] {r.get('title', '')}: {r.get('snippet', '')}\n\n"
             
-            system_prompt = f"""You are a knowledgeable AI assistant with access to real-time web search results. Answer in {lang_name}.
+            system_prompt = f"""You are a knowledgeable AI assistant with access to real-time web search results from multiple sources. Answer in {lang_name}.
 
 CRITICAL RULES:
 1. Answer based on the REAL-TIME web search results provided below.
@@ -590,7 +647,7 @@ CRITICAL RULES:
 5. NEVER say "the web results show" or "according to the search" - just answer naturally.
 6. 3-5 sentences max."""
             
-            user_prompt = f"""Real-time web search results for: {user_message}
+            user_prompt = f"""Real-time web search results from multiple sources for: {user_message}
 
 {web_context}
 
@@ -677,7 +734,8 @@ You can answer ANY topic - science, history, math, technology, etc."""
                 'sources': [],
                 'mode': 'realtime' if web_results else ('study' if doc_context else 'general'),
                 'chart_data': chart_data,
-                'news_results': news_results
+                'news_results': news_results,
+                'search_sources': list(set([r.get('source', 'Web') for r in web_results])) if web_results else []
             })
         else:
             return jsonify({'response': "I'm having trouble right now. Could you try asking again?"}), 500
@@ -701,8 +759,8 @@ def check_status():
         'document_count': doc_count,
         'api_connected': groq_connected,
         'qdrant_connected': qdrant_client is not None,
-        'web_search': 'DuckDuckGo (Free & Unlimited)',
-        'features': ['voice_input', 'multi_language', 'charts', 'multi_news']
+        'web_search': 'DuckDuckGo + Wikipedia + AnySearch (All Free)',
+        'features': ['voice_input', 'multi_language', 'charts', 'multi_news', 'triple_search']
     })
 
 @app.route('/admin/documents', methods=['GET'])
@@ -765,11 +823,8 @@ if __name__ == '__main__':
     print("\n" + "="*60)
     print("🚀 SERVER STARTED")
     print(f"📚 Documents: {doc_count}")
-    print(f"🔍 Web Search: DuckDuckGo (Free & Unlimited)")
+    print(f"🔍 Web Search: DuckDuckGo + Wikipedia + AnySearch (All Free & Unlimited)")
     print(f"🌍 Multi-Language: 10 languages")
-    print(f"🎤 Voice Input: Enabled")
-    print(f"📊 Charts: Enabled")
-    print(f"📰 Multi-News: DuckDuckGo + Wikipedia")
     print(f"🌐 http://0.0.0.0:{port}/")
     print("="*60 + "\n")
     app.run(host='0.0.0.0', port=port, debug=False)
