@@ -22,25 +22,36 @@ function pushPathHistory(type) {
 }
 
 window.addEventListener('popstate', (event) => {
+    console.log('popstate event:', event.state);
     isRestoringHistory = true;
     
-    if (event.state && event.state.type === 'upload') {
-        uploadPath = Array.isArray(event.state.path) ? [...event.state.path] : [];
-        if (!document.getElementById('upload-section')?.classList.contains('active')) {
-            showSection('upload');
+    try {
+        if (event.state && event.state.type === 'upload') {
+            uploadPath = Array.isArray(event.state.path) ? [...event.state.path] : [];
+            console.log('Restored uploadPath:', uploadPath);
+            if (!document.getElementById('upload-section')?.classList.contains('active')) {
+                showSection('upload');
+            } else {
+                renderUploadFolders();
+            }
+        } else if (event.state && event.state.type === 'browse') {
+            browsePath = Array.isArray(event.state.path) ? [...event.state.path] : [];
+            console.log('Restored browsePath:', browsePath);
+            if (!document.getElementById('browse-section')?.classList.contains('active')) {
+                showSection('browse');
+            } else {
+                renderBrowseView();
+            }
         } else {
-            renderUploadFolders();
+            console.log('popstate with no valid state, resetting to browse root');
+            browsePath = [];
+            if (document.getElementById('browse-section')?.classList.contains('active')) {
+                renderBrowseView();
+            }
         }
-    } else if (event.state && event.state.type === 'browse') {
-        browsePath = Array.isArray(event.state.path) ? [...event.state.path] : [];
-        if (!document.getElementById('browse-section')?.classList.contains('active')) {
-            showSection('browse');
-        } else {
-            renderBrowseView();
-        }
+    } finally {
+        isRestoringHistory = false;
     }
-    
-    isRestoringHistory = false;
 });
 
 // Initialize
@@ -143,8 +154,11 @@ function goToPath(type, depth) {
     if (type === 'upload') {
         if (depth === 0) {
             uploadPath = [];
-        } else if (depth <= uploadPath.length) {
+        } else if (depth > 0 && depth <= uploadPath.length) {
             uploadPath = uploadPath.slice(0, depth);
+        } else if (depth > uploadPath.length) {
+            console.warn(`Invalid depth ${depth} for uploadPath length ${uploadPath.length}`);
+            return;
         }
         console.log('Upload path now:', uploadPath);
         renderUploadFolders();
@@ -152,8 +166,11 @@ function goToPath(type, depth) {
     } else if (type === 'browse') {
         if (depth === 0) {
             browsePath = [];
-        } else if (depth <= browsePath.length) {
+        } else if (depth > 0 && depth <= browsePath.length) {
             browsePath = browsePath.slice(0, depth);
+        } else if (depth > browsePath.length) {
+            console.warn(`Invalid depth ${depth} for browsePath length ${browsePath.length}`);
+            return;
         }
         console.log('Browse path now:', browsePath);
         renderBrowseView();
@@ -346,6 +363,8 @@ function updateBreadcrumb(type) {
 // Make goToBreadcrumb globally accessible for onclick handlers
 window.goToBreadcrumb = function(type, depth) {
     console.log(`Breadcrumb clicked: type=${type}, depth=${depth}`);
+    const currentPath = type === 'upload' ? uploadPath : browsePath;
+    console.log(`Current path: ${JSON.stringify(currentPath)}, clicking depth: ${depth}`);
     goToPath(type, depth);
 };
 
