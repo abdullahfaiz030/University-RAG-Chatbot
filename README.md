@@ -16,8 +16,12 @@ short_description: AI Chatbot for university students
 [![Qdrant](https://img.shields.io/badge/Qdrant-Vector_DB-E32228?style=for-the-badge&logo=qdrant&logoColor=white)](https://qdrant.tech/)
 [![HuggingFace](https://img.shields.io/badge/Hugging%20Face-Spaces-yellow?style=for-the-badge&logo=huggingface&logoColor=black)](https://huggingface.co/)
 [![Docker](https://img.shields.io/badge/Docker-Enabled-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
+[![Live Demo](https://img.shields.io/badge/Live_Demo-Hugging_Face_Space-blue?style=for-the-badge&logo=huggingface&logoColor=white)](https://looksa-university-chatbot.hf.space/)
 
 A premium, production-ready AI Assistant designed for university students. Powered by **Retrieval-Augmented Generation (RAG)**, a triple-fallback **Free Web Search Engine**, automated **Tesseract OCR Ingestion**, and **Groq Cloud LLMs (Llama-3.3-70B / Llama-3.1-8B)**.
+
+> [!TIP]
+> **🚀 Live Hosted Application**: You can interact with the live version of this project running on Hugging Face Spaces here: **[looksa-university-chatbot.hf.space](https://looksa-university-chatbot.hf.space/)**
 
 ---
 
