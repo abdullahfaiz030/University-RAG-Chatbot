@@ -1,3 +1,4 @@
+from pptx import Presentation
 import os
 import warnings
 warnings.filterwarnings('ignore')
@@ -175,6 +176,28 @@ def extract_text_from_pdf(file_path):
             pass
     return text
 
+def extract_text_from_pptx(file_path):
+    """Extract text from PowerPoint (.pptx) files including tables"""
+    text = ""
+    try:
+        prs = Presentation(file_path)
+        for slide_num, slide in enumerate(prs.slides, 1):
+            slide_text = ""
+            for shape in slide.shapes:
+                if hasattr(shape, "text") and shape.text.strip():
+                    slide_text += shape.text + "\n"
+                if shape.has_table:
+                    table = shape.table
+                    for row in table.rows:
+                        row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+                        if row_text:
+                            slide_text += row_text + "\n"
+            if slide_text.strip():
+                text += f"\n--- Slide {slide_num} ---\n{slide_text}\n"
+    except Exception as e:
+        print(f"PPTX extraction error: {e}")
+    return text
+
 def extract_text_from_docx(file_path):
     try:
         doc = docx.Document(file_path)
@@ -253,7 +276,7 @@ def upload_to_hf_dataset(file_path, filename):
         print(f"⚠️ HF backup failed: {e}")
         return False
 
-# ========== WEB SEARCH ENGINE #1: DUCKDUCKGO ==========
+# ========== WEB SEARCH ==========
 
 def search_duckduckgo(query):
     try:
@@ -272,8 +295,6 @@ def search_duckduckgo(query):
     except:
         return None
 
-# ========== WEB SEARCH ENGINE #2: WIKIPEDIA ==========
-
 def search_wikipedia(query):
     try:
         wiki_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{requests.utils.quote(query)}"
@@ -289,8 +310,6 @@ def search_wikipedia(query):
         return None
     except:
         return None
-
-# ========== WEB SEARCH ENGINE #3: ANYSEARCH (BACKUP) ==========
 
 def search_anysearch(query):
     try:
@@ -312,24 +331,15 @@ def search_anysearch(query):
     except:
         return None
 
-# ========== MASTER SEARCH FUNCTION ==========
-
 def search_web(query):
     all_results = []
-    
     ddg_results = search_duckduckgo(query)
-    if ddg_results:
-        all_results.extend(ddg_results)
-    
+    if ddg_results: all_results.extend(ddg_results)
     wiki_results = search_wikipedia(query)
-    if wiki_results:
-        all_results.extend(wiki_results)
-    
+    if wiki_results: all_results.extend(wiki_results)
     if len(all_results) < 2:
         any_results = search_anysearch(query)
-        if any_results:
-            all_results.extend(any_results)
-    
+        if any_results: all_results.extend(any_results)
     return all_results if all_results else None
 
 def search_multi_news(query):
@@ -353,15 +363,13 @@ def extract_chart_data(user_message, web_results):
     user_lower = user_message.lower()
     chart_triggers = ['compare', 'comparison', 'chart', 'graph', 'statistics', 'data', 'numbers', 
                       'population', 'gdp', 'price', 'percentage', 'how many', 'how much']
-    if not any(trigger in user_lower for trigger in chart_triggers):
-        return None
+    if not any(trigger in user_lower for trigger in chart_triggers): return None
     chart_data = {}
     if web_results:
         for r in web_results:
             snippet = r.get('snippet', '')
             pairs = re.findall(r'(\w+(?:\s+\w+)?)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*(?:million|billion|%|percent)?', snippet, re.IGNORECASE)
-            for label, value in pairs[:3]:
-                chart_data[label.strip()] = float(value)
+            for label, value in pairs[:3]: chart_data[label.strip()] = float(value)
     return chart_data if len(chart_data) >= 2 else None
 
 def get_language_name(lang_code):
@@ -438,6 +446,8 @@ def upload_file():
             
             if file_type == 'pdf':
                 text = extract_text_from_pdf(file_path)
+            elif file_type in ['pptx', 'ppt']:
+                text = extract_text_from_pptx(file_path)
             elif file_type == 'docx':
                 text = extract_text_from_docx(file_path)
             elif file_type == 'txt':
@@ -494,7 +504,6 @@ def chat():
     try:
         data = request.json
         user_message = data.get('message', '').strip()
-        target_language = data.get('language', 'en')
         
         if not user_message:
             return jsonify({'response': 'Please type a message.'}), 400
@@ -502,9 +511,7 @@ def chat():
             return jsonify({'response': 'AI service not available.'}), 500
         
         user_lower = user_message.lower().strip()
-        lang_name = get_language_name(target_language)
         
-        # Classification
         question_words = ['what', 'who', 'where', 'when', 'why', 'how', 'which', 'whose', 'whom', 'can you', 'could you', 'tell me', 'explain', 'define', 'describe']
         is_question = any(user_lower.startswith(q) for q in question_words) or user_message.strip().endswith('?')
         
@@ -526,25 +533,11 @@ def chat():
         needs_realtime = needs_real_time_info(user_message)
         is_casual = is_greeting or is_thanks or is_about_ai or is_user_personal
         
-        # ========== WEB SEARCH ==========
         web_results = None
-        news_results = None
-        chart_data = None
-        
         if needs_realtime and not is_casual:
-            search_query = user_message
-            if 'president' in user_lower or 'prime minister' in user_lower or 'leader' in user_lower or 'election' in user_lower or 'news' in user_lower:
-                search_query = f"{user_message} 2025 current"
-            
-            web_results = search_web(search_query)
-            if web_results:
-                chart_data = extract_chart_data(user_message, web_results)
-            news_results = search_multi_news(search_query)
+            web_results = search_web(user_message)
         
-        # ========== SEARCH DOCUMENTS ==========
         doc_context = ""
-        sources = []
-        
         if qdrant_client and embedding_model and not is_casual and not web_results:
             try:
                 query_embedding = embedding_model.encode(user_message).tolist()
@@ -554,94 +547,48 @@ def chat():
                 if search_results:
                     texts = []
                     for hit in search_results:
-                        payload = hit.payload
-                        filename = payload.get('filename', 'Unknown')
-                        if filename not in sources:
-                            sources.append(filename)
-                        texts.append(payload.get('text', ''))
+                        texts.append(hit.payload.get('text', ''))
                     if texts:
                         doc_context = "\n\n".join(texts[:3])
             except Exception as e:
                 print(f"Search error: {e}")
         
-        # ========== BUILD PROMPT (ALL SHORT & DIRECT) ==========
+        # ========== PROMPTS (SHORT & DIRECT) ==========
         
         if is_greeting:
-            system_prompt = "You are a friendly AI. Give a SHORT greeting. 1 sentence only. Be warm and natural."
+            system_prompt = "You are a friendly AI. Give a SHORT greeting. 1 sentence only."
             user_prompt = f"User: {user_message}\n\nShort greeting:"
             max_tokens = 30
-            
         elif is_identity:
-            system_prompt = "You are an AI assistant. In 1-2 short sentences, explain you're an AI created to help people learn. No physical form. Be friendly."
+            system_prompt = "You are an AI assistant. In 1-2 short sentences, explain you're an AI created to help people learn."
             user_prompt = f"User: {user_message}\n\nShort response:"
             max_tokens = 60
-            
         elif is_location:
-            system_prompt = "You are an AI. In 1 short sentence, explain you don't have a physical location. Be friendly."
+            system_prompt = "You are an AI. In 1 short sentence, explain you don't have a physical location."
             user_prompt = f"User: {user_message}\n\nShort response:"
             max_tokens = 40
-            
         elif is_user_personal:
             system_prompt = "In 1-2 short sentences, honestly say you don't know their name but you're happy to help."
             user_prompt = f"User: {user_message}\n\nShort response:"
             max_tokens = 40
-            
         elif is_thanks:
             system_prompt = "Respond to thanks in 1 very short, warm sentence."
             user_prompt = f"User: {user_message}\n\nShort response:"
             max_tokens = 20
-            
         elif web_results:
             web_context = ""
             for r in web_results[:3]:
                 web_context += f"📰 {r.get('title', '')}: {r.get('snippet', '')}\n\n"
-            
-            system_prompt = """You are a helpful AI with web access. 
-
-RULES:
-1. Answer in 1-3 SHORT sentences MAX.
-2. Be direct and to the point.
-3. Use the web results to give current information.
-4. NEVER mention "web results" or "search" - just answer naturally.
-5. NO paragraphs, NO long explanations."""
-            
-            user_prompt = f"""Web results:
-{web_context}
-
-Question: {user_message}
-
-Short, direct answer (1-3 sentences):"""
+            system_prompt = "You are a helpful AI with web access. Answer in 1-3 SHORT sentences. Be direct. NO paragraphs."
+            user_prompt = f"Web results:\n{web_context}\n\nQuestion: {user_message}\n\nShort answer:"
             max_tokens = 120
-            
         elif doc_context:
-            system_prompt = """You are a helpful AI tutor. 
-
-RULES:
-1. Answer in 1-3 SHORT sentences MAX.
-2. Be direct and concise - like texting a friend.
-3. NEVER mention "notes", "documents", "files", or "PDFs".
-4. Just give the answer directly.
-5. NO paragraphs, NO bullet points, NO long explanations."""
-            
-            user_prompt = f"""Reference (read silently, NEVER mention):
-{doc_context[:500]}
-
-Question: {user_message}
-
-Short, direct answer (1-3 sentences):"""
+            system_prompt = "You are a helpful AI tutor. Answer in 1-3 SHORT sentences. Be direct. NEVER mention notes or documents."
+            user_prompt = f"Reference (read silently):\n{doc_context[:500]}\n\nQuestion: {user_message}\n\nShort answer:"
             max_tokens = 100
-            
         else:
-            system_prompt = """You are a smart AI assistant.
-
-RULES:
-1. Answer in 1-3 SHORT sentences MAX.
-2. Be direct and to the point.
-3. NO paragraphs, NO long explanations.
-4. For definitions: 1-2 sentences.
-5. For explanations: 2-3 sentences max."""
-            
-            user_prompt = f"Question: {user_message}\n\nShort, direct answer:"
+            system_prompt = "You are a smart AI assistant. Answer in 1-3 SHORT sentences. Be direct. NO paragraphs."
+            user_prompt = f"Question: {user_message}\n\nShort answer:"
             max_tokens = 100
         
         # ========== GET RESPONSE ==========
@@ -674,19 +621,8 @@ RULES:
         if response_text:
             response_text = re.sub(r'\*{1,3}', '', response_text)
             response_text = re.sub(r'#{1,4}\s*', '', response_text)
-            
-            # Remove document mentions
-            doc_phrases = [
-                r'(?i).*study notes.*?\.\s*',
-                r'(?i).*the (documents?|files?|PDFs?|notes).*?\.\s*',
-                r'(?i).*according to.*?\.\s*',
-                r'(?i).*based on.*?\.\s*',
-            ]
-            for phrase in doc_phrases:
-                response_text = re.sub(phrase, '', response_text)
             response_text = response_text.strip()
             
-            # Safety fallbacks
             if is_greeting and (len(response_text) < 2 or len(response_text) > 60):
                 response_text = "Hey there! 👋 How can I help you today?"
             if is_thanks and len(response_text) > 30:
@@ -694,13 +630,7 @@ RULES:
             if not response_text or len(response_text) < 2:
                 response_text = "How can I help you today?"
             
-            return jsonify({
-                'response': response_text,
-                'sources': [],
-                'mode': 'realtime' if web_results else ('study' if doc_context else 'general'),
-                'chart_data': chart_data,
-                'news_results': news_results
-            })
+            return jsonify({'response': response_text, 'sources': [], 'mode': 'realtime' if web_results else ('study' if doc_context else 'general')})
         else:
             return jsonify({'response': "I'm having trouble right now. Could you try asking again?"}), 500
             
