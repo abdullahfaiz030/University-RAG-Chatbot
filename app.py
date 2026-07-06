@@ -18,12 +18,13 @@ import pandas as pd
 from dotenv import load_dotenv
 from functools import wraps
 import json
-from datetime import timedelta
+from datetime import timedelta, datetime
 import traceback
 import time
 import re
 import uuid
 import requests
+import sqlite3
 from collections import defaultdict
 
 load_dotenv()
@@ -40,8 +41,8 @@ def load_hf_secrets():
                 print(f"✅ Loaded secret: {secret_name}")
             except Exception as e:
                 print(f"⚠️ Could not load {secret_name}: {e}")
-    
-    for secret_name in ['GEMINI_API_KEY', 'GROQ_API_KEY', 'SECRET_KEY', 'ADMIN_USERNAME', 'ADMIN_PASSWORD', 
+
+    for secret_name in ['GROQ_API_KEY', 'SECRET_KEY', 'ADMIN_USERNAME', 'ADMIN_PASSWORD',
                          'QDRANT_URL', 'QDRANT_API_KEY', 'HF_TOKEN', 'HF_DATASET']:
         if not os.environ.get(secret_name):
             paths = [f'/etc/secrets/{secret_name}', f'/secrets/{secret_name}', f'/run/secrets/{secret_name}']
@@ -57,9 +58,7 @@ def load_hf_secrets():
 
 load_hf_secrets()
 
-gemini_key = os.environ.get('GEMINI_API_KEY', 'NOT SET')
 groq_key = os.environ.get('GROQ_API_KEY', 'NOT SET')
-print(f"🔑 GEMINI_API_KEY: {'SET' if gemini_key != 'NOT SET' else 'NOT SET'}")
 print(f"🔑 GROQ_API_KEY: {'SET' if groq_key != 'NOT SET' else 'NOT SET'}")
 print(f"🔑 QDRANT_URL: {'SET' if os.environ.get('QDRANT_URL') else 'NOT SET'}")
 
@@ -74,9 +73,82 @@ ADMIN_PASSWORD_HASH = generate_password_hash(os.getenv('ADMIN_PASSWORD', 'Admin@
 
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-# ========== CONVERSATION MEMORY ==========
-conversation_sessions = defaultdict(list)
+# ========== PERSISTENT CONVERSATION MEMORY (SQLite) ==========
+DB_PATH = os.getenv('CHAT_DB_PATH', 'chat_history.db')
 MAX_HISTORY = 20
+
+
+def get_db_connection():
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=10)
+    conn.execute('PRAGMA journal_mode=WAL')
+    return conn
+
+
+def init_db():
+    conn = get_db_connection()
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            timestamp TEXT NOT NULL
+        )
+    ''')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_session_id ON messages(session_id)')
+    conn.commit()
+    conn.close()
+
+
+def save_message(session_id, role, content):
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            'INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, ?, ?, ?)',
+            (session_id, role, content, datetime.utcnow().isoformat())
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_session_history(session_id, limit=MAX_HISTORY):
+    conn = get_db_connection()
+    try:
+        cur = conn.execute(
+            'SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?',
+            (session_id, limit)
+        )
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+    return [{'role': r, 'content': c} for r, c in reversed(rows)]
+
+
+def trim_session_history(session_id, keep=MAX_HISTORY):
+    conn = get_db_connection()
+    try:
+        conn.execute('''
+            DELETE FROM messages
+            WHERE session_id = ? AND id NOT IN (
+                SELECT id FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?
+            )
+        ''', (session_id, session_id, keep))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def clear_session_history(session_id):
+    conn = get_db_connection()
+    try:
+        conn.execute('DELETE FROM messages WHERE session_id = ?', (session_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+init_db()
 
 print("\n" + "="*60)
 print("🔄 INITIALIZING...")
@@ -93,13 +165,13 @@ qdrant_client = None
 try:
     qdrant_url = os.getenv('QDRANT_URL')
     qdrant_api_key = os.getenv('QDRANT_API_KEY')
-    
+
     if qdrant_url and qdrant_api_key:
         qdrant_client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
-        
+
         collections = qdrant_client.get_collections().collections
         collection_names = [c.name for c in collections]
-        
+
         if "university_notes" not in collection_names:
             qdrant_client.create_collection(
                 collection_name="university_notes",
@@ -127,32 +199,15 @@ try:
 except Exception as e:
     print(f"⚠️ HF Dataset setup failed: {e}")
 
-gemini_api_key = os.getenv('GEMINI_API_KEY')
-gemini_connected = False
-
-if gemini_api_key:
-    gemini_connected = True
-    print("✅ Gemini API config found")
-
 groq_api_key = os.getenv('GROQ_API_KEY')
-groq_client = None
-groq_connected = False
-
-if groq_api_key:
-    try:
-        from groq import Groq
-        groq_client = Groq(api_key=groq_api_key)
-        print("✅ Groq client created")
-        groq_connected = True
-    except:
-        try:
-            print("✅ Using HTTP fallback for Groq")
-            groq_client = "http_fallback"
-            groq_connected = True
-        except:
-            print("❌ Groq failed")
+groq_connected = bool(groq_api_key)
+if groq_connected:
+    print("✅ Groq API key found")
+else:
+    print("❌ Groq API key missing")
 
 print("="*60 + "\n")
+
 
 def admin_required(f):
     @wraps(f)
@@ -161,6 +216,7 @@ def admin_required(f):
             return redirect(url_for('admin_login_page'))
         return f(*args, **kwargs)
     return decorated_function
+
 
 def extract_text_from_pdf(file_path):
     text = ""
@@ -173,7 +229,7 @@ def extract_text_from_pdf(file_path):
                     text += page_text + "\n"
     except:
         pass
-    
+
     if len(text.strip()) < 100:
         try:
             from pdf2image import convert_from_path
@@ -189,6 +245,7 @@ def extract_text_from_pdf(file_path):
         except:
             pass
     return text
+
 
 def extract_text_from_pptx(file_path):
     text = ""
@@ -211,12 +268,14 @@ def extract_text_from_pptx(file_path):
         print(f"PPTX extraction error: {e}")
     return text
 
+
 def extract_text_from_docx(file_path):
     try:
         doc = docx.Document(file_path)
         return "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
     except:
         return ""
+
 
 def extract_text_from_txt(file_path):
     for enc in ['utf-8', 'latin-1', 'cp1252']:
@@ -227,6 +286,7 @@ def extract_text_from_txt(file_path):
             continue
     return ""
 
+
 def clean_text(text):
     text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
     text = re.sub(r'[ \t]+', ' ', text)
@@ -234,6 +294,7 @@ def clean_text(text):
     text = re.sub(r'\b\d{1,2}/\d{1,2}/\d{2,4}\b', '', text)
     text = re.sub(r'<center>.*?</center>', '', text, flags=re.DOTALL)
     return text.strip()
+
 
 def chunk_text(text, size=500, overlap=50):
     paragraphs = re.split(r'\n\s*\n', text)
@@ -253,61 +314,46 @@ def chunk_text(text, size=500, overlap=50):
         chunks.append(current.strip())
     return chunks if chunks else [text[:size]]
 
+
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+MODELS_TO_TRY = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "mixtral-8x7b-32768"]
+
+
 def groq_chat_completion(messages, model="llama-3.1-8b-instant", max_tokens=150, temperature=0.7):
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {groq_api_key}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": model,
-        "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": temperature
-    }
-    response = requests.post(url, json=payload, headers=headers, timeout=30)
+    headers = {"Authorization": f"Bearer {groq_api_key}", "Content-Type": "application/json"}
+    payload = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature}
+    response = requests.post(GROQ_URL, json=payload, headers=headers, timeout=30)
     if response.status_code == 200:
         return response.json()["choices"][0]["message"]["content"]
-    else:
-        raise Exception(f"Groq API error: {response.status_code}")
+    raise Exception(f"Groq API error: {response.status_code}")
 
-def gemini_chat_completion(messages, model="gemini-2.0-flash", max_tokens=150, temperature=0.7):
-    """Updated to accept full message array like Groq"""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_api_key}"
-    headers = {"Content-Type": "application/json"}
-    
-    # Convert messages to Gemini format
-    system_prompt = None
-    contents = []
-    
-    for msg in messages:
-        if msg["role"] == "system":
-            system_prompt = msg["content"]
-        elif msg["role"] == "user":
-            contents.append({"role": "user", "parts": [{"text": msg["content"]}]})
-        elif msg["role"] == "assistant":
-            contents.append({"role": "model", "parts": [{"text": msg["content"]}]})
-    
+
+def groq_chat_completion_stream(messages, model="llama-3.1-8b-instant", max_tokens=150, temperature=0.7):
+    headers = {"Authorization": f"Bearer {groq_api_key}", "Content-Type": "application/json"}
     payload = {
-        "contents": contents,
-        "generationConfig": {
-            "temperature": temperature,
-            "maxOutputTokens": max_tokens
-        }
+        "model": model, "messages": messages, "max_tokens": max_tokens,
+        "temperature": temperature, "stream": True
     }
-    
-    if system_prompt:
-        payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
-    
-    response = requests.post(url, json=payload, headers=headers, timeout=30)
-    if response.status_code == 200:
-        data = response.json()
-        try:
-            return data["candidates"][0]["content"]["parts"][0]["text"]
-        except (KeyError, IndexError) as e:
-            raise Exception("Unexpected Gemini API response structure")
-    else:
-        raise Exception(f"Gemini API error: {response.status_code} - {response.text}")
+    with requests.post(GROQ_URL, json=payload, headers=headers, timeout=30, stream=True) as response:
+        if response.status_code != 200:
+            raise Exception(f"Groq API error: {response.status_code}")
+        for raw_line in response.iter_lines():
+            if not raw_line:
+                continue
+            line = raw_line.decode('utf-8')
+            if not line.startswith('data: '):
+                continue
+            payload_str = line[len('data: '):].strip()
+            if payload_str == '[DONE]':
+                break
+            try:
+                chunk = json.loads(payload_str)
+                delta = chunk.get('choices', [{}])[0].get('delta', {}).get('content', '')
+                if delta:
+                    yield delta
+            except (json.JSONDecodeError, IndexError, KeyError):
+                continue
+
 
 def upload_to_hf_dataset(file_path, filename):
     if not hf_api or not hf_dataset:
@@ -318,6 +364,7 @@ def upload_to_hf_dataset(file_path, filename):
         return True
     except:
         return False
+
 
 # ========== WEB SEARCH ==========
 
@@ -332,6 +379,7 @@ def search_duckduckgo(query):
     except:
         return None
 
+
 def search_wikipedia(query):
     try:
         wiki_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{requests.utils.quote(query)}"
@@ -342,6 +390,7 @@ def search_wikipedia(query):
         return None
     except:
         return None
+
 
 def search_anysearch(query):
     try:
@@ -357,6 +406,7 @@ def search_anysearch(query):
     except:
         return None
 
+
 def search_web(query):
     all_results = []
     ddg_results = search_duckduckgo(query)
@@ -368,20 +418,22 @@ def search_web(query):
         if any_results: all_results.extend(any_results)
     return all_results if all_results else None
 
+
 def analyze_sentiment(text):
     positive_words = ['thanks', 'great', 'awesome', 'good', 'love', 'excellent', 'wonderful', 'perfect', 'helpful', 'amazing']
     negative_words = ['bad', 'terrible', 'awful', 'hate', 'useless', 'stupid', 'wrong', 'poor', 'frustrating', 'confusing']
     frustrated_words = ['confused', 'dont understand', 'not clear', 'what do you mean', 'explain again', 'still dont get']
-    
+
     text_lower = text.lower()
     pos_count = sum(1 for w in positive_words if w in text_lower)
     neg_count = sum(1 for w in negative_words if w in text_lower)
     frus_count = sum(1 for w in frustrated_words if w in text_lower)
-    
+
     if frus_count > 0: return 'frustrated'
     if neg_count > pos_count: return 'negative'
     if pos_count > 0: return 'positive'
     return 'neutral'
+
 
 def needs_real_time_info(user_message):
     user_lower = user_message.lower()
@@ -396,6 +448,7 @@ def needs_real_time_info(user_message):
     ]
     return any(indicator in user_lower for indicator in real_time_indicators)
 
+
 def generate_suggestions(user_message, response_text):
     user_lower = user_message.lower()
     if 'what is' in user_lower or 'define' in user_lower:
@@ -405,17 +458,180 @@ def generate_suggestions(user_message, response_text):
     else:
         return ["Can you explain more?", "What's an example of this?", "How is this applied in practice?"]
 
+
+# ========== SHARED PROMPT-BUILDING LOGIC ==========
+
+def build_chat_context(user_message, session_id):
+    user_lower = user_message.lower().strip()
+    sentiment = analyze_sentiment(user_message)
+
+    # ---- Follow-up detection ----
+    follow_up_phrases = [
+        'explain more', 'tell me more', 'give me more', 'elaborate',
+        'what about', 'can you explain', 'go deeper', 'more details',
+        'more explanation', 'expand', 'further', 'in detail',
+        'what else', 'continue', 'and then', 'why is that',
+        'how does that', 'can you clarify', 'what does that mean',
+        'explain it', 'describe it', 'tell about it', 'what is it',
+        'tell me about it', 'elaborate on that', 'go on'
+    ]
+    is_follow_up = any(phrase in user_lower for phrase in follow_up_phrases) and len(user_message.split()) <= 8
+
+    # ---- Pull history from SQLite ----
+    history = get_session_history(session_id)
+    recent_history = ""
+    previous_topic = ""
+    history_messages = []  # For including as real message context
+
+    if history:
+        last_messages = history[-6:]
+        for msg in last_messages:
+            role = "User" if msg['role'] == 'user' else "Assistant"
+            recent_history += f"{role}: {msg['content']}\n"
+
+        last_user_msgs = [m['content'] for m in history if m['role'] == 'user']
+        if last_user_msgs:
+            previous_topic = last_user_msgs[-1]
+
+        # For follow-ups, get the last 4 messages to send as real context
+        if is_follow_up:
+            history_messages = history[-4:]
+
+    # ---- Classification ----
+    greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening', 'sup', 'yo', 'hola', 'hii', 'heyy', 'helloo', 'morning', 'evening', 'good day']
+    is_greeting = any(user_lower == g or user_lower.startswith(g + ' ') for g in greetings) and len(user_message.split()) <= 3
+
+    identity_q = ['who are you', 'what are you', 'your name', 'about yourself', 'introduce yourself', 'tell me about yourself', 'who created you', 'are you ai', 'are you human', 'are you real']
+    location_q = ['where are you', 'where do you live', 'your country', 'which country', 'where you from', 'your location']
+    user_personal_q = ['know my name', 'do you know me', 'who am i', 'what is my name', 'remember me']
+
+    is_identity = any(q in user_lower for q in identity_q)
+    is_location = any(q in user_lower for q in location_q)
+    is_user_personal = any(q in user_lower for q in user_personal_q)
+    is_about_ai = is_identity or is_location
+
+    thanks_words = ['thank', 'thanks', 'thx', 'appreciate']
+    is_thanks = any(t in user_lower for t in thanks_words) and len(user_message.split()) <= 4
+
+    needs_realtime = needs_real_time_info(user_message)
+    is_casual = is_greeting or is_thanks or is_about_ai or is_user_personal
+
+    # ---- Web search ----
+    web_results = None
+    if needs_realtime and not is_casual:
+        web_results = search_web(user_message)
+
+    # ---- Document search ----
+    doc_context = ""
+    if qdrant_client and embedding_model and not is_casual and not web_results:
+        if is_follow_up and previous_topic:
+            search_query = previous_topic
+        else:
+            search_query = user_message
+        try:
+            query_embedding = embedding_model.encode(search_query).tolist()
+            search_results = qdrant_client.search(
+                collection_name="university_notes", query_vector=query_embedding, limit=3
+            )
+            if search_results:
+                texts = [hit.payload.get('text', '') for hit in search_results]
+                if texts:
+                    doc_context = "\n\n".join(texts[:3])
+        except Exception as e:
+            print(f"Search error: {e}")
+
+    # ---- Build prompts ----
+    if is_greeting:
+        system_prompt = "You are a friendly AI. Give a SHORT greeting. 1 sentence only."
+        user_prompt = f"User: {user_message}\n\nShort greeting:"
+        max_tokens = 30
+    elif is_identity:
+        system_prompt = "You are an AI assistant. In 1-2 short sentences, explain you're an AI created to help people learn."
+        user_prompt = f"User: {user_message}\n\nShort response:"
+        max_tokens = 60
+    elif is_location:
+        system_prompt = "You are an AI. In 1 short sentence, explain you don't have a physical location."
+        user_prompt = f"User: {user_message}\n\nShort response:"
+        max_tokens = 40
+    elif is_user_personal:
+        system_prompt = "In 1-2 short sentences, honestly say you don't know their name but you're happy to help."
+        user_prompt = f"User: {user_message}\n\nShort response:"
+        max_tokens = 40
+    elif is_thanks:
+        system_prompt = "Respond to thanks in 1 very short, warm sentence."
+        user_prompt = f"User: {user_message}\n\nShort response:"
+        max_tokens = 20
+    elif sentiment == 'frustrated':
+        system_prompt = "The user seems frustrated. Be extra patient and helpful. Break things down simply. Offer to re-explain. 2-3 sentences."
+        user_prompt = f"User seems confused: {user_message}\n\nPatient, helpful response:"
+        max_tokens = 150
+    elif web_results:
+        web_context = ""
+        for r in web_results[:3]:
+            web_context += f"📰 {r.get('title', '')}: {r.get('snippet', '')}\n\n"
+        system_prompt = "You are a helpful AI with web access. Answer in 1-3 SHORT sentences. Be direct."
+        user_prompt = f"Web results:\n{web_context}\n\nQuestion: {user_message}\n\nShort answer:"
+        max_tokens = 120
+    elif is_follow_up and doc_context:
+        system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP question about: '{previous_topic}'. Use the conversation history and reference material to EXPAND on the topic. Give more details. Answer in 3-5 sentences. NEVER mention notes or documents."
+        user_prompt = f"Reference material about '{previous_topic}':\n{doc_context[:500]}\n\nUser says: {user_message}\n\nExpand on '{previous_topic}' with more detail:"
+        max_tokens = 200
+    elif is_follow_up and not doc_context:
+        system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP question about: '{previous_topic}'. Use the conversation history and your knowledge to EXPAND on the topic. Give more details. Answer in 3-5 sentences."
+        user_prompt = f"Previous topic: '{previous_topic}'. User says: {user_message}\n\nExpand on '{previous_topic}':"
+        max_tokens = 200
+    elif doc_context:
+        system_prompt = "You are a helpful AI tutor. Answer in 1-3 SHORT sentences. Be direct. NEVER mention notes or documents."
+        user_prompt = f"Reference (read silently):\n{doc_context[:500]}\n\nQuestion: {user_message}\n\nShort answer:"
+        max_tokens = 100
+    else:
+        system_prompt = "You are a smart AI assistant. Answer in 1-3 SHORT sentences. Be direct. NO paragraphs."
+        user_prompt = f"Question: {user_message}\n\nShort answer:"
+        max_tokens = 100
+
+    mode = 'followup' if is_follow_up else ('realtime' if web_results else ('study' if doc_context else 'general'))
+
+    return {
+        'system_prompt': system_prompt,
+        'user_prompt': user_prompt,
+        'max_tokens': max_tokens,
+        'mode': mode,
+        'sentiment': sentiment,
+        'is_greeting': is_greeting,
+        'is_thanks': is_thanks,
+        'is_follow_up': is_follow_up,
+        'history_messages': history_messages,
+    }
+
+
+def postprocess_response(text, ctx):
+    if not text:
+        return "How can I help you today?"
+    text = re.sub(r'\*{1,3}', '', text)
+    text = re.sub(r'#{1,4}\s*', '', text)
+    text = text.strip()
+    if ctx['is_greeting'] and (len(text) < 2 or len(text) > 60):
+        text = "Hey there! 👋 How can I help you today?"
+    if ctx['is_thanks'] and len(text) > 30:
+        text = "You're welcome! 😊"
+    if not text or len(text) < 2:
+        text = "How can I help you today?"
+    return text
+
+
 # ==================== ROUTES ====================
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
+
 @app.route('/admin')
 def admin_login_page():
     if 'admin_logged_in' in session:
         return redirect(url_for('admin_panel'))
     return render_template('admin_login.html')
+
 
 @app.route('/admin/login', methods=['POST'])
 def admin_login():
@@ -426,27 +642,30 @@ def admin_login():
         return jsonify({'success': True})
     return jsonify({'success': False, 'message': 'Invalid credentials'}), 401
 
+
 @app.route('/admin/logout')
 def admin_logout():
     session.pop('admin_logged_in', None)
     return redirect(url_for('admin_login_page'))
+
 
 @app.route('/admin/panel')
 @admin_required
 def admin_panel():
     return render_template('admin.html')
 
+
 @app.route('/admin/upload', methods=['POST'])
 @admin_required
 def upload_file():
     if 'files' not in request.files:
         return jsonify({'error': 'No files'}), 400
-    
+
     files = request.files.getlist('files')
     category = request.form.get('category', '')
     uploaded = []
     failed = []
-    
+
     for file in files:
         if not file.filename: continue
         try:
@@ -454,7 +673,7 @@ def upload_file():
             file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             file.save(file_path)
             file_type = filename.split('.')[-1].lower()
-            
+
             if file_type == 'pdf':
                 text = extract_text_from_pdf(file_path)
             elif file_type in ['pptx', 'ppt']:
@@ -471,9 +690,9 @@ def upload_file():
                     text = ""
             else:
                 text = extract_text_from_txt(file_path)
-            
+
             text = clean_text(text)
-            
+
             if text and len(text.strip()) > 50:
                 chunks = chunk_text(text)
                 points = []
@@ -485,253 +704,145 @@ def upload_file():
                         "category": category, "file_type": file_type,
                         "upload_date": str(pd.Timestamp.now())
                     }))
-                
+
                 if qdrant_client:
                     qdrant_client.upsert(collection_name="university_notes", points=points)
-                
+
                 upload_to_hf_dataset(file_path, filename)
                 uploaded.append({'name': filename, 'type': file_type.upper(), 'chunks': len(chunks)})
             else:
                 failed.append({'name': filename, 'reason': 'No text extracted'})
-            
+
             if os.path.exists(file_path): os.remove(file_path)
         except Exception as e:
             failed.append({'name': file.filename, 'reason': str(e)})
-    
+
     return jsonify({'success': True, 'uploaded': uploaded, 'failed': failed})
+
 
 @app.route('/chat', methods=['POST'])
 def chat():
+    """Non-streaming endpoint with conversation history context."""
     try:
         data = request.json
         user_message = data.get('message', '').strip()
         session_id = data.get('session_id', 'default')
-        
+
         if not user_message:
             return jsonify({'response': 'Please type a message.'}), 400
-        if not gemini_api_key and not groq_client:
+        if not groq_api_key:
             return jsonify({'response': 'AI service not available.'}), 500
-        
-        user_lower = user_message.lower().strip()
-        sentiment = analyze_sentiment(user_message)
-        
-        # ========== DETECT FOLLOW-UP QUESTIONS ==========
-        follow_up_phrases = [
-            'explain more', 'tell me more', 'give me more', 'elaborate',
-            'what about', 'can you explain', 'go deeper', 'more details',
-            'more explanation', 'expand', 'further', 'in detail',
-            'what else', 'continue', 'and then', 'why is that',
-            'how does that', 'can you clarify', 'what does that mean',
-            'explain it', 'describe it', 'tell about it', 'what is it',
-            'tell me about it', 'elaborate on that', 'go on'
-        ]
-        is_follow_up = any(phrase in user_lower for phrase in follow_up_phrases) and len(user_message.split()) <= 8
-        
-        # ========== GET PREVIOUS TOPIC FROM HISTORY ==========
-        history = conversation_sessions.get(session_id, [])
-        previous_topic = ""
-        
-        if history:
-            last_user_msgs = [m['content'] for m in history if m['role'] == 'user']
-            if last_user_msgs:
-                previous_topic = last_user_msgs[-1]
-        
-        # ========== CLASSIFICATION ==========
-        question_words = ['what', 'who', 'where', 'when', 'why', 'how', 'which', 'whose', 'whom', 'can you', 'could you', 'tell me', 'explain', 'define', 'describe']
-        is_question = any(user_lower.startswith(q) for q in question_words) or user_message.strip().endswith('?')
-        
-        greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening', 'sup', 'yo', 'hola', 'hii', 'heyy', 'helloo', 'morning', 'evening', 'good day']
-        is_greeting = any(user_lower == g or user_lower.startswith(g + ' ') for g in greetings) and len(user_message.split()) <= 3 and not is_question
-        
-        identity_q = ['who are you', 'what are you', 'your name', 'about yourself', 'introduce yourself', 'tell me about yourself', 'who created you', 'are you ai', 'are you human', 'are you real']
-        location_q = ['where are you', 'where do you live', 'your country', 'which country', 'where you from', 'your location']
-        user_personal_q = ['know my name', 'do you know me', 'who am i', 'what is my name', 'remember me']
-        
-        is_identity = any(q in user_lower for q in identity_q)
-        is_location = any(q in user_lower for q in location_q) 
-        is_user_personal = any(q in user_lower for q in user_personal_q)
-        is_about_ai = is_identity or is_location
-        
-        thanks_words = ['thank', 'thanks', 'thx', 'appreciate']
-        is_thanks = any(t in user_lower for t in thanks_words) and len(user_message.split()) <= 4 and not is_question
-        
-        needs_realtime = needs_real_time_info(user_message)
-        is_casual = is_greeting or is_thanks or is_about_ai or is_user_personal
-        
-        # ========== WEB SEARCH ==========
-        web_results = None
-        if needs_realtime and not is_casual:
-            web_results = search_web(user_message)
-        
-        # ========== DOCUMENT SEARCH (FIXED FOR FOLLOW-UPS) ==========
-        doc_context = ""
-        
-        if qdrant_client and embedding_model and not is_casual and not web_results:
-            if is_follow_up and previous_topic:
-                search_query = previous_topic
-            else:
-                search_query = user_message
-            
-            try:
-                query_embedding = embedding_model.encode(search_query).tolist()
-                search_results = qdrant_client.search(
-                    collection_name="university_notes", query_vector=query_embedding, limit=3
-                )
-                if search_results:
-                    texts = []
-                    for hit in search_results:
-                        texts.append(hit.payload.get('text', ''))
-                    if texts: 
-                        doc_context = "\n\n".join(texts[:3])
-            except Exception as e:
-                print(f"Search error: {e}")
-        
-        # ========== BUILD PROMPTS ==========
-        
-        if is_greeting:
-            system_prompt = "You are a friendly AI. Give a SHORT greeting. 1 sentence only."
-            user_prompt = user_message
-            max_tokens = 30
-        elif is_identity:
-            system_prompt = "You are an AI assistant. In 1-2 short sentences, explain you're an AI created to help people learn."
-            user_prompt = user_message
-            max_tokens = 60
-        elif is_location:
-            system_prompt = "You are an AI. In 1 short sentence, explain you don't have a physical location."
-            user_prompt = user_message
-            max_tokens = 40
-        elif is_user_personal:
-            system_prompt = "In 1-2 short sentences, honestly say you don't know their name but you're happy to help."
-            user_prompt = user_message
-            max_tokens = 40
-        elif is_thanks:
-            system_prompt = "Respond to thanks in 1 very short, warm sentence."
-            user_prompt = user_message
-            max_tokens = 20
-        elif sentiment == 'frustrated':
-            system_prompt = "The user seems frustrated. Be extra patient and helpful. Break things down simply. Offer to re-explain. 2-3 sentences."
-            user_prompt = user_message
-            max_tokens = 150
-        elif web_results:
-            web_context = ""
-            for r in web_results[:3]:
-                web_context += f"📰 {r.get('title', '')}: {r.get('snippet', '')}\n\n"
-            system_prompt = "You are a helpful AI with web access. Answer in 1-3 SHORT sentences. Be direct."
-            user_prompt = f"Web results:\n{web_context}\n\nQuestion: {user_message}\n\nShort answer:"
-            max_tokens = 120
-        elif is_follow_up and doc_context:
-            system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP question about: '{previous_topic}'. Use the conversation history and reference material to EXPAND on the topic. Give more details, examples, or deeper explanation. Answer in 3-5 sentences. NEVER mention notes or documents."
-            user_prompt = f"Reference material about '{previous_topic}':\n{doc_context[:500]}\n\nUser says: {user_message}\n\nExpand on '{previous_topic}' with more detail:"
-            max_tokens = 200
-        elif is_follow_up and not doc_context:
-            system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP question about: '{previous_topic}'. Use the conversation history and your knowledge to EXPAND on the topic. Give more details. Answer in 3-5 sentences."
-            user_prompt = f"Previous topic: '{previous_topic}'. User says: {user_message}\n\nExpand on '{previous_topic}':"
-            max_tokens = 200
-        elif doc_context:
-            system_prompt = "You are a helpful AI tutor. Answer in 1-3 SHORT sentences. Be direct. NEVER mention notes or documents."
-            user_prompt = f"Reference (read silently):\n{doc_context[:500]}\n\nQuestion: {user_message}\n\nShort answer:"
-            max_tokens = 100
-        else:
-            system_prompt = "You are a smart AI assistant. Answer in 1-3 SHORT sentences. Be direct. NO paragraphs."
-            user_prompt = f"Question: {user_message}\n\nShort answer:"
-            max_tokens = 100
-        
-        # ========== BUILD MESSAGES WITH CONVERSATION HISTORY ==========
-        messages = [{"role": "system", "content": system_prompt}]
-        
-        # For follow-ups, include the last 4 messages as REAL conversation context
-        if is_follow_up and history:
-            last_exchanges = history[-4:]  # Last 2 exchanges
-            messages.extend(last_exchanges)
-            print(f"📝 Including {len(last_exchanges)} previous messages as context")
-        
-        # Add the current user message
-        messages.append({"role": "user", "content": user_prompt})
-        
-        # ========== GET RESPONSE ==========
+
+        ctx = build_chat_context(user_message, session_id)
+
+        # Build messages with conversation history for follow-ups
+        messages = [{"role": "system", "content": ctx['system_prompt']}]
+        if ctx.get('is_follow_up') and ctx.get('history_messages'):
+            messages.extend(ctx['history_messages'])
+        messages.append({"role": "user", "content": ctx['user_prompt']})
+
         response_text = None
-        
-        # Try Gemini first
-        if gemini_api_key:
-            gemini_models = ["gemini-2.0-flash", "gemini-2.0-flash-lite"]
-            for model in gemini_models:
-                try:
-                    response_text = gemini_chat_completion(
-                        messages=messages,
-                        model=model,
-                        max_tokens=max_tokens,
-                        temperature=0.7
-                    )
-                    if response_text:
-                        print(f"✅ Gemini ({model})")
-                        break
-                except Exception as e:
-                    print(f"⚠️ Gemini {model}: {e}")
-                    continue
-        
-        # Fallback to Groq
-        if not response_text and groq_client:
-            models_to_try = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "mixtral-8x7b-32768"]
-            if groq_client == "http_fallback":
-                for model in models_to_try:
-                    try:
-                        response_text = groq_chat_completion(
-                            messages=messages,
-                            model=model, max_tokens=max_tokens, temperature=0.7
-                        )
-                        print(f"✅ Groq fallback ({model})")
-                        break
-                    except: continue
-            else:
-                for model in models_to_try:
-                    try:
-                        completion = groq_client.chat.completions.create(
-                            model=model,
-                            messages=messages,
-                            temperature=0.7, max_tokens=max_tokens
-                        )
-                        response_text = completion.choices[0].message.content
-                        print(f"✅ Groq ({model})")
-                        break
-                    except: continue
-        
+        for model in MODELS_TO_TRY:
+            try:
+                response_text = groq_chat_completion(
+                    messages=messages,
+                    model=model, max_tokens=ctx['max_tokens'], temperature=0.7
+                )
+                break
+            except Exception:
+                continue
+
         if response_text:
-            response_text = re.sub(r'\*{1,3}', '', response_text)
-            response_text = re.sub(r'#{1,4}\s*', '', response_text)
-            response_text = response_text.strip()
-            
-            if is_greeting and (len(response_text) < 2 or len(response_text) > 60):
-                response_text = "Hey there! 👋 How can I help you today?"
-            if is_thanks and len(response_text) > 30:
-                response_text = "You're welcome! 😊"
-            if not response_text or len(response_text) < 2:
-                response_text = "How can I help you today?"
-            
-            # Store in conversation history
-            conversation_sessions[session_id].append({"role": "user", "content": user_message})
-            conversation_sessions[session_id].append({"role": "assistant", "content": response_text})
-            if len(conversation_sessions[session_id]) > MAX_HISTORY:
-                conversation_sessions[session_id] = conversation_sessions[session_id][-MAX_HISTORY:]
-            
+            response_text = postprocess_response(response_text, ctx)
+
+            save_message(session_id, 'user', user_message)
+            save_message(session_id, 'assistant', response_text)
+            trim_session_history(session_id)
+
             suggestions = generate_suggestions(user_message, response_text)
-            
+
             return jsonify({
                 'response': response_text,
                 'sources': [],
-                'mode': 'followup' if is_follow_up else ('realtime' if web_results else ('study' if doc_context else 'general')),
-                'sentiment': sentiment,
+                'mode': ctx['mode'],
+                'sentiment': ctx['sentiment'],
                 'suggestions': suggestions
             })
         else:
             return jsonify({'response': "I'm having trouble right now. Could you try asking again?"}), 500
-            
+
     except Exception as e:
         print(f"Chat error: {e}")
         return jsonify({'response': "Sorry, I encountered an issue. Please try again!"}), 500
 
-def is_greeting_check(user_lower):
-    greetings = ['hi', 'hello', 'hey', 'morning', 'evening', 'sup', 'yo', 'hola']
-    return any(user_lower == g or user_lower.startswith(g + ' ') for g in greetings)
+
+@app.route('/chat/stream', methods=['POST'])
+def chat_stream():
+    """Streaming endpoint with conversation history context."""
+    data = request.json or {}
+    user_message = (data.get('message') or '').strip()
+    session_id = data.get('session_id', 'default')
+
+    if not user_message:
+        return jsonify({'error': 'Please type a message.'}), 400
+    if not groq_api_key:
+        return jsonify({'error': 'AI service not available.'}), 500
+
+    ctx = build_chat_context(user_message, session_id)
+
+    def event_stream():
+        full_response = ""
+        # Build messages with conversation history for follow-ups
+        messages = [{"role": "system", "content": ctx['system_prompt']}]
+        if ctx.get('is_follow_up') and ctx.get('history_messages'):
+            messages.extend(ctx['history_messages'])
+        messages.append({"role": "user", "content": ctx['user_prompt']})
+
+        streamed_ok = False
+
+        for model in MODELS_TO_TRY:
+            try:
+                for delta in groq_chat_completion_stream(messages, model=model, max_tokens=ctx['max_tokens'], temperature=0.7):
+                    full_response += delta
+                    yield f"data: {json.dumps({'delta': delta})}\n\n"
+                streamed_ok = True
+                break
+            except Exception as e:
+                full_response = ""
+                continue
+
+        if not streamed_ok:
+            yield f"data: {json.dumps({'error': 'AI service is having trouble. Please try again.'})}\n\n"
+            return
+
+        clean_response = postprocess_response(full_response, ctx)
+
+        save_message(session_id, 'user', user_message)
+        save_message(session_id, 'assistant', clean_response)
+        trim_session_history(session_id)
+
+        suggestions = generate_suggestions(user_message, clean_response)
+
+        yield f"data: {json.dumps({'done': True, 'mode': ctx['mode'], 'sentiment': ctx['sentiment'], 'suggestions': suggestions})}\n\n"
+
+    return Response(
+        event_stream(),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+            'Connection': 'keep-alive',
+        }
+    )
+
+
+@app.route('/clear-history', methods=['POST'])
+def clear_history():
+    data = request.json or {}
+    session_id = data.get('session_id', 'default')
+    clear_session_history(session_id)
+    return jsonify({'success': True})
+
 
 @app.route('/export-chat', methods=['POST'])
 def export_chat():
@@ -739,17 +850,17 @@ def export_chat():
         data = request.json
         session_id = data.get('session_id', 'default')
         format_type = data.get('format', 'txt')
-        
-        messages = conversation_sessions.get(session_id, [])
+
+        messages = get_session_history(session_id, limit=10_000)
         if not messages:
             return jsonify({'error': 'No messages to export'}), 400
-        
+
         if format_type == 'txt':
             text = "📝 Chat Export\n" + "="*50 + "\n\n"
             for msg in messages:
                 role = "👤 You" if msg['role'] == 'user' else "🤖 AI"
                 text += f"{role}: {msg['content']}\n\n"
-            
+
             return Response(text, mimetype='text/plain', headers={'Content-Disposition': 'attachment;filename=chat_export.txt'})
         elif format_type == 'json':
             return jsonify({'messages': messages, 'exported_at': str(pd.Timestamp.now())})
@@ -757,6 +868,7 @@ def export_chat():
             return jsonify({'error': 'Unsupported format'}), 400
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
 
 @app.route('/check-status', methods=['GET'])
 def check_status():
@@ -770,11 +882,12 @@ def check_status():
         'status': 'online',
         'documents_available': doc_count > 0,
         'document_count': doc_count,
-        'api_connected': gemini_connected or groq_connected,
+        'api_connected': groq_connected,
         'qdrant_connected': qdrant_client is not None,
         'web_search': 'DuckDuckGo + Wikipedia + AnySearch (All Free)',
-        'features': ['memory', 'follow_up', 'sentiment', 'suggestions', 'export', 'voice', 'charts', 'multi_language']
+        'features': ['persistent_memory', 'streaming', 'follow_up_context', 'sentiment', 'suggestions', 'export', 'multi_language']
     })
+
 
 @app.route('/admin/documents', methods=['GET'])
 @admin_required
@@ -799,6 +912,7 @@ def get_documents():
         except: pass
     return jsonify({'success': True, 'documents': docs})
 
+
 @app.route('/admin/delete/<doc_id>', methods=['DELETE'])
 @admin_required
 def delete_document(doc_id):
@@ -808,6 +922,7 @@ def delete_document(doc_id):
         return jsonify({'success': True})
     except:
         return jsonify({'success': False}), 500
+
 
 @app.route('/admin/stats')
 @admin_required
@@ -820,6 +935,7 @@ def get_admin_stats():
         except: pass
     return jsonify({'success': True, 'total_documents': doc_count, 'total_chunks': doc_count})
 
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 7860))
     doc_count = 0
@@ -831,10 +947,13 @@ if __name__ == '__main__':
     print("\n" + "="*60)
     print("🚀 SERVER STARTED")
     print(f"📚 Documents: {doc_count}")
-    print(f"🧠 Memory: {MAX_HISTORY} messages per session")
-    print(f"💬 Follow-up Detection: Enabled")
-    print(f"🤖 Gemini API: {'Available' if gemini_connected else 'Not configured'}")
-    print(f"🔍 Groq API: {'Available' if groq_connected else 'Not configured'}")
+    print(f"🧠 Memory: SQLite-backed ({DB_PATH}), {MAX_HISTORY} messages/session")
+    print(f"📡 Streaming: Enabled at /chat/stream (SSE)")
+    print(f"💬 Follow-up Detection: Enabled (with message context)")
+    print(f"😊 Sentiment Analysis: Enabled")
+    print(f"💡 Smart Suggestions: Enabled")
+    print(f"📤 Chat Export: Enabled")
+    print(f"🔍 Web Search: DuckDuckGo + Wikipedia + AnySearch (All Free)")
     print(f"🌐 http://0.0.0.0:{port}/")
     print("="*60 + "\n")
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
