@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,105 +9,264 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 </head>
+
 <body>
     <div class="admin-container">
+        <!-- Sidebar -->
         <div class="admin-sidebar">
             <div class="sidebar-brand">
                 <i class="fas fa-shield-alt"></i>
                 <h2>Admin Panel</h2>
             </div>
+
             <nav class="sidebar-nav">
                 <a href="#upload" class="nav-item active" onclick="showSection('upload')">
-                    <i class="fas fa-cloud-upload-alt"></i><span>Upload</span>
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <span>Upload</span>
                 </a>
                 <a href="#documents" class="nav-item" onclick="showSection('documents')">
-                    <i class="fas fa-folder-tree"></i><span>Documents</span>
+                    <i class="fas fa-folder-tree"></i>
+                    <span>Documents</span>
                 </a>
                 <a href="#browse" class="nav-item" onclick="showSection('browse')">
-                    <i class="fas fa-compass"></i><span>Browse</span>
+                    <i class="fas fa-compass"></i>
+                    <span>Browse</span>
                 </a>
                 <a href="#stats" class="nav-item" onclick="showSection('stats')">
-                    <i class="fas fa-chart-pie"></i><span>Stats</span>
+                    <i class="fas fa-chart-pie"></i>
+                    <span>Stats</span>
                 </a>
             </nav>
+
             <div class="sidebar-footer">
-                <a href="/" class="back-btn"><i class="fas fa-arrow-left"></i> Back to Chat</a>
-                <a href="/admin/logout" class="logout-btn"><i class="fas fa-sign-out-alt"></i> Logout</a>
+                <a href="/" class="back-btn">
+                    <i class="fas fa-arrow-left"></i> Back to Chat
+                </a>
+                <a href="/admin/logout" class="logout-btn">
+                    <i class="fas fa-sign-out-alt"></i> Logout
+                </a>
             </div>
         </div>
-        
+
+        <!-- Main Content -->
         <div class="admin-main">
+            <!-- Upload Section -->
             <div id="upload-section" class="content-section active">
                 <div class="section-header">
                     <div>
                         <h2><i class="fas fa-cloud-upload-alt"></i> Upload Documents</h2>
-                        <p>Select a folder location for your documents</p>
+                        <p>Organize documents by category before uploading</p>
                     </div>
                 </div>
+
                 <div class="upload-container">
-                    <div id="uploadBreadcrumb" style="margin-bottom: 16px; font-size: 13px; color: var(--text-secondary);"></div>
-                    <div class="folder-grid" id="uploadFolders"></div>
-                    <div style="display: flex; gap: 8px; margin: 16px 0;">
-                        <input type="text" id="newFolderName" placeholder="Create new folder..." 
-                               style="flex: 1; padding: 10px 14px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: 13px;">
-                        <button onclick="createNewFolder('upload')" style="padding: 10px 16px; background: var(--primary); border: none; color: white; border-radius: 10px; cursor: pointer; font-size: 13px; font-weight: 500;">
-                            <i class="fas fa-folder-plus"></i> Create
+                    <!-- Category Selection -->
+                    <label
+                        style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; display: block;">Select
+                        Category:</label>
+                    <div class="category-selector" id="categorySelector">
+                        <span class="category-tag active" data-category="">📁 All</span>
+                        <span class="category-tag" data-category="Year1-Sem1">📚 Year 1 - Sem 1</span>
+                        <span class="category-tag" data-category="Year1-Sem2">📚 Year 1 - Sem 2</span>
+                        <span class="category-tag" data-category="Year2-Sem1">📚 Year 2 - Sem 1</span>
+                        <span class="category-tag" data-category="Year2-Sem2">📚 Year 2 - Sem 2</span>
+                        <span class="category-tag" data-category="Year3-Sem1">📚 Year 3 - Sem 1</span>
+                        <span class="category-tag" data-category="Year3-Sem2">📚 Year 3 - Sem 2</span>
+                        <span class="category-tag" data-category="Year4-Sem1">📚 Year 4 - Sem 1</span>
+                        <span class="category-tag" data-category="Year4-Sem2">📚 Year 4 - Sem 2</span>
+                    </div>
+
+                    <!-- Custom Category Input -->
+                    <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+                        <input type="text" id="customCategory"
+                            placeholder="Or type custom category (e.g., CSH31221, Dr.Smith, Assignments)..."
+                            style="flex: 1; padding: 8px 12px; background: var(--surface-light); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 12px;">
+                        <button onclick="addCustomCategory()"
+                            style="padding: 8px 14px; background: var(--surface-light); border: 1px solid var(--border); color: var(--text); border-radius: 8px; cursor: pointer; font-size: 12px;">
+                            <i class="fas fa-plus"></i> Add
                         </button>
                     </div>
+
+                    <!-- Folder Path Display -->
+                    <div class="folder-tree" id="folderPath">
+                        <i class="fas fa-folder-open" style="color: var(--primary-light);"></i>
+                        <span onclick="setCategory('')">Root</span>
+                        <i class="fas fa-chevron-right"></i>
+                        <span id="currentFolder">All Documents</span>
+                    </div>
+
+                    <!-- Upload Zone -->
                     <div class="upload-zone" id="uploadZone">
                         <i class="fas fa-cloud-upload-alt"></i>
-                        <h3>Drop files here to upload to current folder</h3>
-                        <p>or click to browse</p>
-                        <span class="file-types">PDF • PPTX • DOCX • TXT • CSV • XLSX</span>
-                        <input type="file" id="fileInput" multiple accept=".pdf,.pptx,.ppt,.docx,.txt,.csv,.xlsx,.xls" hidden>
+                        <h3>Drag & Drop Files Here</h3>
+                        <p>or click to browse files</p>
+                        <span class="file-types">PDF • PPTX • DOCX • TXT • CSV • XLSX | Max 16MB</span>
+                        <input type="file" id="fileInput" multiple accept=".pdf,.pptx,.ppt,.docx,.txt,.csv,.xlsx,.xls"
+                            hidden>
                     </div>
+
                     <div class="upload-list" id="uploadList"></div>
+
                     <button class="upload-btn" id="uploadBtn" onclick="uploadFiles()" disabled>
-                        <i class="fas fa-upload"></i> Upload to Current Folder
+                        <i class="fas fa-upload"></i> Upload to <span id="uploadCategoryText">All Documents</span>
                     </button>
                 </div>
+
                 <div id="uploadProgress" style="margin-top: 15px;"></div>
             </div>
-            
+
+            <!-- Documents Section -->
             <div id="documents-section" class="content-section">
                 <div class="section-header">
-                    <div><h2><i class="fas fa-list"></i> All Documents</h2><p>Search and manage all uploaded documents</p></div>
-                    <button class="refresh-btn" onclick="loadAllDocuments()"><i class="fas fa-sync-alt"></i> Refresh</button>
+                    <div>
+                        <h2><i class="fas fa-folder-tree"></i> Document Library</h2>
+                        <p>Browse documents by category</p>
+                    </div>
+                    <button class="refresh-btn" onclick="loadDocuments()">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
                 </div>
-                <div style="display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;">
-                    <input type="text" id="docSearch" placeholder="🔍 Search documents..." oninput="filterAllDocuments()"
-                           style="flex: 1; min-width: 200px; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: 13px;">
+
+                <!-- Quick Folder Access -->
+                <div class="quick-folders" id="quickFolders"></div>
+
+                <!-- Filter Bar -->
+                <div style="display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center;">
+                    <input type="text" id="docSearch" placeholder="🔍 Search documents..." oninput="filterDocuments()"
+                        style="flex: 1; min-width: 200px; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: 13px;">
+                    <select id="categoryFilter" onchange="filterDocuments()"
+                        style="padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: 13px;">
+                        <option value="">All Categories</option>
+                    </select>
                 </div>
-                <div class="documents-grid" id="allDocumentsGrid"><div class="loading-state"><i class="fas fa-spinner fa-spin"></i><p>Loading documents...</p></div></div>
+
+                <div class="documents-grid" id="documentsGrid">
+                    <div class="loading-state">
+                        <i class="fas fa-spinner fa-spin"></i>
+                        <p>Loading documents...</p>
+                    </div>
+                </div>
             </div>
-            
+
+            <!-- Browse Section (Folder Explorer) -->
             <div id="browse-section" class="content-section">
                 <div class="section-header">
-                    <div><h2><i class="fas fa-compass"></i> Browse Folders</h2><p>Click folders to open, click breadcrumb links to go back</p></div>
+                    <div>
+                        <h2><i class="fas fa-compass"></i> Browse Folders</h2>
+                        <p>Click folders to open, click breadcrumb links to go back</p>
+                    </div>
                 </div>
-                <div id="browseBreadcrumb" style="display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 20px; font-size: 13px;"></div>
-                <div class="folder-browser-grid" id="browseFolders"><div class="loading-state"><i class="fas fa-spinner fa-spin"></i><p>Loading folders...</p></div></div>
+
+                <!-- Breadcrumb Navigation -->
+                <div id="browseBreadcrumb"
+                    style="display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 20px; font-size: 13px;">
+                    <!-- Dynamically filled -->
+                </div>
+
+                <!-- Subfolders Grid -->
+                <div class="folder-browser-grid" id="browseFolders">
+                    <div class="loading-state">
+                        <i class="fas fa-spinner fa-spin"></i>
+                        <p>Loading folders...</p>
+                    </div>
+                </div>
+
+                <!-- Files in Current Folder -->
                 <div style="margin-top: 24px;">
-                    <h3 style="font-size: 15px; margin-bottom: 12px; color: var(--text-secondary);"><i class="fas fa-file-alt"></i> Files in this folder</h3>
-                    <div id="browseFiles"><div class="loading-state"><i class="fas fa-spinner fa-spin"></i><p>Loading files...</p></div></div>
+                    <h3 style="font-size: 15px; margin-bottom: 12px; color: var(--text-secondary);">
+                        <i class="fas fa-file-alt"></i> Files in this folder
+                    </h3>
+                    <div id="browseFiles">
+                        <div class="loading-state">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            <p>Loading files...</p>
+                        </div>
+                    </div>
                 </div>
             </div>
-            
+
+            <!-- Statistics Section -->
             <div id="stats-section" class="content-section">
-                <div class="section-header"><h2><i class="fas fa-chart-pie"></i> System Statistics</h2></div>
-                <div class="stats-grid">
-                    <div class="stat-card"><div class="stat-icon"><i class="fas fa-file-alt"></i></div><div class="stat-info"><span class="stat-value" id="statDocuments">0</span><span class="stat-label">Total Documents</span></div></div>
-                    <div class="stat-card"><div class="stat-icon"><i class="fas fa-cubes"></i></div><div class="stat-info"><span class="stat-value" id="statChunks">0</span><span class="stat-label">Document Chunks</span></div></div>
-                    <div class="stat-card"><div class="stat-icon"><i class="fas fa-folder-tree"></i></div><div class="stat-info"><span class="stat-value" id="statFolders">0</span><span class="stat-label">Folders</span></div></div>
-                    <div class="stat-card"><div class="stat-icon"><i class="fas fa-database"></i></div><div class="stat-info"><span class="stat-value" id="statStorage">0 MB</span><span class="stat-label">Storage</span></div></div>
+                <div class="section-header">
+                    <h2><i class="fas fa-chart-pie"></i> System Statistics</h2>
                 </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-file-alt"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="statDocuments">0</span>
+                            <span class="stat-label">Total Documents</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-cubes"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="statChunks">0</span>
+                            <span class="stat-label">Document Chunks</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-folder-tree"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="statFolders">0</span>
+                            <span class="stat-label">Folders</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-database"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="statStorage">0 MB</span>
+                            <span class="stat-label">Storage Used</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Folder Structure Tree -->
                 <div style="margin-top: 30px;">
-                    <h3 style="font-size: 15px; margin-bottom: 16px; color: var(--text-secondary);"><i class="fas fa-sitemap"></i> Folder Structure</h3>
-                    <div class="folder-tree-view" id="folderTreeView"><div class="loading-state"><i class="fas fa-spinner fa-spin"></i><p>Building tree...</p></div></div>
+                    <h3 style="font-size: 15px; margin-bottom: 16px; color: var(--text-secondary);">
+                        <i class="fas fa-sitemap"></i> Folder Structure
+                    </h3>
+                    <div class="folder-tree-view" id="folderTreeView">
+                        <div class="loading-state">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            <p>Building tree...</p>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
+
+    <!-- Rename Modal -->
+    <div class="modal-overlay" id="renameModal" onclick="closeRenameModal(event)">
+        <div class="modal-card" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <div class="modal-icon">
+                    <i class="fas fa-pen"></i>
+                </div>
+                <div>
+                    <h3>Rename Document</h3>
+                    <p>Enter a new display name for this file</p>
+                </div>
+                <button class="modal-close" onclick="closeRenameModal()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <label for="renameInput">New filename</label>
+                <input type="text" id="renameInput" class="rename-input" placeholder="e.g. Lecture_01_Introduction.pdf"
+                    onkeydown="if(event.key==='Enter') confirmRename()">
+                <span id="renameError" class="rename-error"></span>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn cancel" onclick="closeRenameModal()">Cancel</button>
+                <button class="modal-btn confirm" id="renameConfirmBtn" onclick="confirmRename()">
+                    <i class="fas fa-check"></i> Rename
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script src="{{ url_for('static', filename='admin.js') }}"></script>
 </body>
+
 </html>
