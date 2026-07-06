@@ -473,7 +473,7 @@ def generate_suggestions(user_message, response_text):
 
 # ========== SHARED PROMPT-BUILDING LOGIC ==========
 
-def build_chat_context(user_message, session_id):
+def build_chat_context(user_message, session_id, length_control='medium'):
     user_lower = user_message.lower().strip()
     sentiment = analyze_sentiment(user_message)
 
@@ -512,7 +512,11 @@ def build_chat_context(user_message, session_id):
     is_casual = is_greeting or is_thanks or is_about_ai or is_user_personal
 
     web_results = None
-    if needs_realtime and not is_casual: web_results = search_web(user_message)
+    sources = []
+    if needs_realtime and not is_casual:
+        web_results = search_web(user_message)
+        if web_results:
+            sources = [r.get('title', '') for r in web_results[:3] if r.get('title')]
 
     doc_context = ""
     if qdrant_client and embedding_model and not is_casual and not web_results:
@@ -523,6 +527,8 @@ def build_chat_context(user_message, session_id):
             if search_results:
                 texts = [hit.payload.get('text', '') for hit in search_results]
                 if texts: doc_context = "\n\n".join(texts[:3])
+                doc_names = [hit.payload.get('filename', '') for hit in search_results if hit.payload.get('filename')]
+                sources = list(dict.fromkeys(doc_names))
         except Exception as e: print(f"Search error: {e}")
 
     # Build prompts
@@ -571,6 +577,16 @@ def build_chat_context(user_message, session_id):
         system_prompt = "You are a smart AI assistant. Answer in 1-3 SHORT sentences."
         user_prompt = f"Question: {user_message}\n\nShort answer:"
         max_tokens = 100
+    # Apply length control overrides
+    if length_control == 'short':
+        system_prompt += " IMPORTANT: Keep response extremely short and concise (1 sentence max)."
+        max_tokens = 80
+    elif length_control == 'detailed':
+        system_prompt += " Provide a detailed explanation with formatting, bullet points, or code blocks where relevant."
+        max_tokens = 1000
+    else: # medium
+        system_prompt += " Keep response to a medium length (2-4 sentences max)."
+        max_tokens = 250
 
     return {
         'system_prompt': system_prompt,
@@ -582,6 +598,7 @@ def build_chat_context(user_message, session_id):
         'is_thanks': is_thanks,
         'is_follow_up': is_follow_up,
         'history_messages': history_messages,
+        'sources': sources,
     }
 
 def postprocess_response(text, ctx):
@@ -674,10 +691,11 @@ def chat():
         data = request.json or {}
         user_message = data.get('message', '').strip()
         session_id = data.get('session_id', 'default')
+        length_control = data.get('length_control', 'medium')
         if not user_message: return jsonify({'response': 'Please type a message.'}), 400
         if not gemini_api_key and not groq_api_key: return jsonify({'response': 'AI service not available.'}), 500
 
-        ctx = build_chat_context(user_message, session_id)
+        ctx = build_chat_context(user_message, session_id, length_control)
         response_text = None
 
         if gemini_api_key:
@@ -706,7 +724,7 @@ def chat():
             save_message(session_id, 'assistant', response_text)
             trim_session_history(session_id)
             suggestions = generate_suggestions(user_message, response_text)
-            return jsonify({'response': response_text, 'sources': [], 'mode': ctx['mode'], 'sentiment': ctx['sentiment'], 'suggestions': suggestions})
+            return jsonify({'response': response_text, 'sources': ctx.get('sources', []), 'mode': ctx['mode'], 'sentiment': ctx['sentiment'], 'suggestions': suggestions})
         else:
             return jsonify({'response': "I'm having trouble. Try again!"}), 500
     except Exception as e:
@@ -718,10 +736,11 @@ def chat_stream():
     data = request.json or {}
     user_message = (data.get('message') or '').strip()
     session_id = data.get('session_id', 'default')
+    length_control = data.get('length_control', 'medium')
     if not user_message: return jsonify({'error': 'Please type a message.'}), 400
     if not gemini_api_key and not groq_api_key: return jsonify({'error': 'AI service not available.'}), 500
 
-    ctx = build_chat_context(user_message, session_id)
+    ctx = build_chat_context(user_message, session_id, length_control)
 
     def event_stream():
         full_response = ""
@@ -761,7 +780,7 @@ def chat_stream():
         save_message(session_id, 'assistant', clean_response)
         trim_session_history(session_id)
         suggestions = generate_suggestions(user_message, clean_response)
-        yield f"data: {json.dumps({'done': True, 'mode': ctx['mode'], 'sentiment': ctx['sentiment'], 'suggestions': suggestions})}\n\n"
+        yield f"data: {json.dumps({'done': True, 'mode': ctx['mode'], 'sentiment': ctx['sentiment'], 'suggestions': suggestions, 'sources': ctx.get('sources', [])})}\n\n"
 
     return Response(event_stream(), mimetype='text/event-stream', headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no', 'Connection': 'keep-alive'})
 

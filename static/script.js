@@ -305,13 +305,13 @@ async function sendMessage() {
         }
         if (assistantDiv) {
             finalizeBotMessage(assistantDiv, doneMeta || {});
-            saveMessageToHistory('assistant', fullText);
+            saveMessageToHistory('assistant', fullText, doneMeta ? doneMeta.sources : null);
         } else { removeTypingIndicator(typingId); addMessage('bot', 'Sorry, an error occurred.'); }
     } catch (error) {
         removeTypingIndicator(typingId);
         if (assistantDiv && textEl && fullText) {
             finalizeBotMessage(assistantDiv, doneMeta || {});
-            saveMessageToHistory('assistant', fullText);
+            saveMessageToHistory('assistant', fullText, doneMeta ? doneMeta.sources : null);
         } else { addMessage('bot', '⚠️ Connection error.'); }
     } finally {
         sendBtn.disabled = false;
@@ -345,6 +345,15 @@ function createBotMessageShell() {
 
 function finalizeBotMessage(messageDiv, meta) {
     const bubble = messageDiv.querySelector('.message-bubble');
+    const metaContainer = bubble.querySelector('.message-meta');
+    
+    if (meta.sources && meta.sources.length > 0) {
+        const sourcesEl = document.createElement('div');
+        sourcesEl.className = 'message-sources';
+        sourcesEl.innerHTML = `<i class="fas fa-file-alt"></i> Based on: ${meta.sources.slice(0, 2).join(', ')}`;
+        bubble.insertBefore(sourcesEl, metaContainer);
+    }
+    
     if (meta.suggestions && meta.suggestions.length > 0) {
         const row = document.createElement('div');
         row.className = 'suggestion-chips';
@@ -375,10 +384,17 @@ function addMessageToUi(type, content, sources = null, chartData = null, newsRes
             <button class="speak-btn" onclick="toggleSpeak(this)" title="Read Aloud"><i class="fas fa-volume-up"></i></button>
             <button class="copy-msg-btn" onclick="copyMessageText(this)" title="Copy"><i class="far fa-copy"></i></button>
         </div>` : '';
+    
+    let extrasHtml = '';
+    if (sources && sources.length > 0) {
+        extrasHtml += `<div class="message-sources"><i class="fas fa-file-alt"></i> Based on: ${sources.slice(0, 2).join(', ')}</div>`;
+    }
+    
     messageDiv.innerHTML = `
         <div class="message-avatar">${avatarHtml}</div>
         <div class="message-bubble">
             <div class="message-text">${formatMessage(content)}</div>
+            ${extrasHtml}
             <div class="message-meta"><span class="message-time">${time}</span>${actionButtonsHtml}</div>
         </div>`;
     const welcomeMsg = chatMessages.querySelector('.welcome-message');
@@ -389,13 +405,68 @@ function addMessageToUi(type, content, sources = null, chartData = null, newsRes
 }
 
 function formatMessage(text) {
-    let escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    escaped = escaped.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => `<div class="code-block-wrapper"><div class="code-block-header"><span>${lang || 'code'}</span><button class="copy-code-btn" onclick="copyCodeText(this)"><i class="far fa-copy"></i> Copy</button></div><pre><code>${code.trim()}</code></pre></div>`);
+    let escaped = text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+
+    const codeBlocks = [];
+    escaped = escaped.replace(/```(\w*)\n([\s\S]*?)```/g, function(match, lang, code) {
+        const placeholder = `__CODE_BLOCK_PLACEHOLDER_${codeBlocks.length}__`;
+        codeBlocks.push({
+            lang: lang || 'code',
+            code: code.trim()
+        });
+        return placeholder;
+    });
+
     escaped = escaped.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
     escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+    let lines = escaped.split('\n');
+    let inList = false;
+    for (let i = 0; i < lines.length; i++) {
+        let line = lines[i].trim();
+        if (line.startsWith('- ') || line.startsWith('* ')) {
+            let content = line.substring(2);
+            if (!inList) {
+                lines[i] = '<ul><li>' + content + '</li>';
+                inList = true;
+            } else {
+                lines[i] = '<li>' + content + '</li>';
+            }
+        } else {
+            if (inList) {
+                lines[i] = '</ul>' + lines[i];
+                inList = false;
+            }
+        }
+    }
+    if (inList) {
+        lines.push('</ul>');
+    }
+    escaped = lines.join('\n');
     escaped = escaped.replace(/\n/g, '<br>');
-    escaped = escaped.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" style="color: #818cf8;">$1</a>');
+    escaped = escaped.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" style="color: #3b82f6; font-weight: 500;">$1</a>');
+
+    codeBlocks.forEach((block, index) => {
+        const blockHtml = `<div class="code-block-wrapper">
+            <div class="code-block-header">
+                <span>${block.lang}</span>
+                <button class="copy-code-btn" onclick="copyCodeText(this)"><i class="far fa-copy"></i> Copy</button>
+            </div>
+            <pre><code>${block.code}</code></pre>
+        </div>`;
+        escaped = escaped.replace(`__CODE_BLOCK_PLACEHOLDER_${index}__`, blockHtml);
+    });
+
     return escaped;
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
 }
 
 function copyCodeText(button) {

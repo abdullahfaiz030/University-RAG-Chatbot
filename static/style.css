@@ -379,6 +379,11 @@ body::before {
     transition: border-color 0.3s;
 }
 
+.length-select option {
+    color: var(--text);
+    background: var(--surface);
+}
+
 .length-select:hover {
     border-color: rgba(255, 255, 255, 0.55);
 }
