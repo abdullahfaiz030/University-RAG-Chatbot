@@ -666,3 +666,46 @@ textarea::placeholder {
     margin-top: 8px;
     opacity: 0.7;
 }
+
+/* ============ MESSAGE META & SPEAK BUTTON ============ */
+.message-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 6px;
+    gap: 12px;
+}
+
+.speak-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 13px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    opacity: 0.6;
+    outline: none;
+}
+
+.speak-btn:hover {
+    color: var(--primary-light);
+    opacity: 1;
+    background: rgba(99, 102, 241, 0.1);
+    transform: scale(1.1);
+}
+
+.speak-btn.speaking {
+    color: var(--error);
+    opacity: 1;
+    animation: speaking-pulse 1.2s infinite ease-in-out;
+}
+
+@keyframes speaking-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.15); opacity: 0.8; }
+}

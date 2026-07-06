@@ -41,7 +41,7 @@ def load_hf_secrets():
             except Exception as e:
                 print(f"⚠️ Could not load {secret_name}: {e}")
     
-    for secret_name in ['GROQ_API_KEY', 'SECRET_KEY', 'ADMIN_USERNAME', 'ADMIN_PASSWORD', 
+    for secret_name in ['GEMINI_API_KEY', 'GROQ_API_KEY', 'SECRET_KEY', 'ADMIN_USERNAME', 'ADMIN_PASSWORD', 
                          'QDRANT_URL', 'QDRANT_API_KEY', 'HF_TOKEN', 'HF_DATASET']:
         if not os.environ.get(secret_name):
             paths = [f'/etc/secrets/{secret_name}', f'/secrets/{secret_name}', f'/run/secrets/{secret_name}']
@@ -57,9 +57,12 @@ def load_hf_secrets():
 
 load_hf_secrets()
 
+gemini_key = os.environ.get('GEMINI_API_KEY', 'NOT SET')
 groq_key = os.environ.get('GROQ_API_KEY', 'NOT SET')
+print(f"🔑 GEMINI_API_KEY: {'SET' if gemini_key != 'NOT SET' else 'NOT SET'}")
 print(f"🔑 GROQ_API_KEY: {'SET' if groq_key != 'NOT SET' else 'NOT SET'}")
 print(f"🔑 QDRANT_URL: {'SET' if os.environ.get('QDRANT_URL') else 'NOT SET'}")
+
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024
@@ -125,6 +128,13 @@ try:
 except Exception as e:
     print(f"⚠️ HF Dataset setup failed: {e}")
 
+gemini_api_key = os.getenv('GEMINI_API_KEY')
+gemini_connected = False
+
+if gemini_api_key:
+    gemini_connected = True
+    print("✅ Gemini API config found")
+
 groq_api_key = os.getenv('GROQ_API_KEY')
 groq_client = None
 groq_connected = False
@@ -142,6 +152,7 @@ if groq_api_key:
             groq_connected = True
         except:
             print("❌ Groq failed")
+
 
 print("="*60 + "\n")
 
@@ -261,6 +272,43 @@ def groq_chat_completion(messages, model="llama-3.1-8b-instant", max_tokens=150,
         return response.json()["choices"][0]["message"]["content"]
     else:
         raise Exception(f"Groq API error: {response.status_code}")
+
+def gemini_chat_completion(system_prompt, user_prompt, model="gemini-2.0-flash", max_tokens=150, temperature=0.7):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_api_key}"
+    headers = {
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {"text": user_prompt}
+                ]
+            }
+        ],
+        "generationConfig": {
+            "temperature": temperature,
+            "maxOutputTokens": max_tokens
+        }
+    }
+    if system_prompt:
+        payload["systemInstruction"] = {
+            "parts": [
+                {"text": system_prompt}
+            ]
+        }
+    
+    response = requests.post(url, json=payload, headers=headers, timeout=30)
+    if response.status_code == 200:
+        data = response.json()
+        try:
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        except (KeyError, IndexError) as e:
+            raise Exception("Unexpected Gemini API response structure")
+    else:
+        raise Exception(f"Gemini API error: {response.status_code} - {response.text}")
+
 
 def upload_to_hf_dataset(file_path, filename):
     if not hf_api or not hf_dataset:
@@ -462,7 +510,7 @@ def chat():
         
         if not user_message:
             return jsonify({'response': 'Please type a message.'}), 400
-        if not groq_client:
+        if not gemini_api_key and not groq_client:
             return jsonify({'response': 'AI service not available.'}), 500
         
         user_lower = user_message.lower().strip()
@@ -604,28 +652,49 @@ def chat():
         
         # ========== GET RESPONSE ==========
         response_text = None
-        models_to_try = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "mixtral-8x7b-32768"]
         
-        if groq_client == "http_fallback":
-            for model in models_to_try:
+        if gemini_api_key:
+            gemini_models = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.0-flash-lite", "gemini-2.0-flash"]
+            for model in gemini_models:
                 try:
-                    response_text = groq_chat_completion(
-                        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                        model=model, max_tokens=max_tokens, temperature=0.7
-                    )
-                    break
-                except: continue
-        else:
-            for model in models_to_try:
-                try:
-                    completion = groq_client.chat.completions.create(
+                    response_text = gemini_chat_completion(
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
                         model=model,
-                        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                        temperature=0.7, max_tokens=max_tokens
+                        max_tokens=max_tokens,
+                        temperature=0.7
                     )
-                    response_text = completion.choices[0].message.content
-                    break
-                except: continue
+                    if response_text:
+                        print(f"✅ Generated response using Gemini ({model})")
+                        break
+                except Exception as e:
+                    print(f"⚠️ Gemini model {model} failed: {e}")
+                    continue
+        
+        if not response_text and groq_client:
+            models_to_try = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "mixtral-8x7b-32768"]
+            if groq_client == "http_fallback":
+                for model in models_to_try:
+                    try:
+                        response_text = groq_chat_completion(
+                            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                            model=model, max_tokens=max_tokens, temperature=0.7
+                        )
+                        print(f"✅ Generated response using Groq fallback ({model})")
+                        break
+                    except: continue
+            else:
+                for model in models_to_try:
+                    try:
+                        completion = groq_client.chat.completions.create(
+                            model=model,
+                            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                            temperature=0.7, max_tokens=max_tokens
+                        )
+                        response_text = completion.choices[0].message.content
+                        print(f"✅ Generated response using Groq fallback ({model})")
+                        break
+                    except: continue
         
         if response_text:
             response_text = re.sub(r'\*{1,3}', '', response_text)
@@ -702,7 +771,7 @@ def check_status():
         'status': 'online',
         'documents_available': doc_count > 0,
         'document_count': doc_count,
-        'api_connected': groq_connected,
+        'api_connected': gemini_connected or groq_connected,
         'qdrant_connected': qdrant_client is not None,
         'web_search': 'DuckDuckGo + Wikipedia + AnySearch (All Free)',
         'features': ['memory', 'follow_up', 'sentiment', 'suggestions', 'export', 'voice', 'charts', 'multi_language']

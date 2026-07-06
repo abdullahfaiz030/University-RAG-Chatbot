@@ -11,6 +11,11 @@ let isListening = false;
 let selectedLanguage = 'en';
 let recognition = null;
 
+// Speech Synthesis (Read Aloud) Globals
+let currentUtterance = null;
+let currentSpeakButton = null;
+
+
 // Initialize
 checkSystemStatus();
 initSpeechRecognition();
@@ -190,13 +195,22 @@ function addMessage(type, content, sources = null, chartData = null, newsResults
     
     const formattedContent = formatMessage(content);
     
+    const speakButtonHtml = type === 'bot' ? `
+        <button class="speak-btn" onclick="toggleSpeak(this)" title="Read Aloud">
+            <i class="fas fa-volume-up"></i>
+        </button>
+    ` : '';
+    
     messageDiv.innerHTML = `
         <div class="message-avatar">
             <i class="fas ${avatarIcon}"></i>
         </div>
         <div class="message-bubble">
             <div class="message-text">${formattedContent}</div>
-            <div class="message-time">${time}</div>
+            <div class="message-meta">
+                <span class="message-time">${time}</span>
+                ${speakButtonHtml}
+            </div>
             ${extrasHtml}
         </div>
     `;
@@ -368,3 +382,50 @@ function showToast(message) {
         setTimeout(() => toast.remove(), 300);
     }, 2000);
 }
+
+// Text-to-Speech (Read Aloud) logic
+function toggleSpeak(button) {
+    const bubble = button.closest('.message-bubble');
+    const textElement = bubble.querySelector('.message-text');
+    let text = textElement.innerText || textElement.textContent;
+    
+    // Clean up links and other unwanted characters for voice synthesis
+    text = text.replace(/https?:\/\/[^\s]+/g, '').replace(/⚠️|🤖|👤|📰/g, '').trim();
+
+    if (window.speechSynthesis.speaking) {
+        window.speechSynthesis.cancel();
+        if (currentSpeakButton) {
+            currentSpeakButton.innerHTML = '<i class="fas fa-volume-up"></i>';
+            currentSpeakButton.classList.remove('speaking');
+        }
+        if (currentSpeakButton === button) {
+            currentSpeakButton = null;
+            currentUtterance = null;
+            return;
+        }
+    }
+    
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = selectedLanguage || 'en';
+    
+    utterance.onend = () => {
+        button.innerHTML = '<i class="fas fa-volume-up"></i>';
+        button.classList.remove('speaking');
+        currentUtterance = null;
+        currentSpeakButton = null;
+    };
+    
+    utterance.onerror = () => {
+        button.innerHTML = '<i class="fas fa-volume-up"></i>';
+        button.classList.remove('speaking');
+        currentUtterance = null;
+        currentSpeakButton = null;
+    };
+    
+    button.innerHTML = '<i class="fas fa-stop"></i>';
+    button.classList.add('speaking');
+    currentUtterance = utterance;
+    currentSpeakButton = button;
+    
+    window.speechSynthesis.speak(utterance);
+}
