@@ -74,7 +74,7 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # ========== CONVERSATION MEMORY ==========
 conversation_sessions = defaultdict(list)
-MAX_HISTORY = 20  # Keep last 20 messages per session
+MAX_HISTORY = 20
 
 print("\n" + "="*60)
 print("🔄 INITIALIZING...")
@@ -264,20 +264,12 @@ def groq_chat_completion(messages, model="llama-3.1-8b-instant", max_tokens=150,
 
 def upload_to_hf_dataset(file_path, filename):
     if not hf_api or not hf_dataset:
-        print("⚠️ HF Dataset not configured - skipping backup")
         return False
     try:
         path_in_repo = f"documents/{filename}"
-        hf_api.upload_file(
-            path_or_fileobj=file_path,
-            path_in_repo=path_in_repo,
-            repo_id=hf_dataset,
-            repo_type="dataset"
-        )
-        print(f"✅ Backed up to HF: {filename}")
+        hf_api.upload_file(path_or_fileobj=file_path, path_in_repo=path_in_repo, repo_id=hf_dataset, repo_type="dataset")
         return True
-    except Exception as e:
-        print(f"⚠️ HF backup failed: {e}")
+    except:
         return False
 
 # ========== WEB SEARCH ==========
@@ -287,14 +279,8 @@ def search_duckduckgo(query):
         from duckduckgo_search import DDGS
         results = []
         with DDGS() as ddgs:
-            search_results = list(ddgs.text(query, max_results=3))
-            for r in search_results:
-                results.append({
-                    "title": r.get("title", ""),
-                    "snippet": r.get("body", ""),
-                    "link": r.get("href", ""),
-                    "source": "DuckDuckGo"
-                })
+            for r in list(ddgs.text(query, max_results=3)):
+                results.append({"title": r.get("title", ""), "snippet": r.get("body", ""), "link": r.get("href", ""), "source": "DuckDuckGo"})
         return results if results else None
     except:
         return None
@@ -305,12 +291,7 @@ def search_wikipedia(query):
         wiki_response = requests.get(wiki_url, timeout=8)
         if wiki_response.status_code == 200:
             wiki_data = wiki_response.json()
-            return [{
-                "title": wiki_data.get("title", query),
-                "snippet": wiki_data.get("extract", "")[:500],
-                "source": "Wikipedia",
-                "link": wiki_data.get("content_urls", {}).get("desktop", {}).get("page", "")
-            }]
+            return [{"title": wiki_data.get("title", query), "snippet": wiki_data.get("extract", "")[:500], "source": "Wikipedia", "link": wiki_data.get("content_urls", {}).get("desktop", {}).get("page", "")}]
         return None
     except:
         return None
@@ -318,18 +299,12 @@ def search_wikipedia(query):
 def search_anysearch(query):
     try:
         url = "https://anysearch-mcp.khulnasoft.com/search"
-        payload = {"query": query, "limit": 3}
-        response = requests.post(url, json=payload, timeout=10)
+        response = requests.post(url, json={"query": query, "limit": 3}, timeout=10)
         if response.status_code == 200:
             data = response.json()
             results = []
             for item in data.get("results", [])[:3]:
-                results.append({
-                    "title": item.get("title", ""),
-                    "snippet": item.get("snippet", ""),
-                    "link": item.get("url", ""),
-                    "source": "AnySearch"
-                })
+                results.append({"title": item.get("title", ""), "snippet": item.get("snippet", ""), "link": item.get("url", ""), "source": "AnySearch"})
             return results if results else None
         return None
     except:
@@ -346,40 +321,7 @@ def search_web(query):
         if any_results: all_results.extend(any_results)
     return all_results if all_results else None
 
-def search_multi_news(query):
-    all_results = []
-    try:
-        from duckduckgo_search import DDGS
-        with DDGS() as ddgs:
-            news_results = list(ddgs.news(query, max_results=2))
-            for r in news_results:
-                all_results.append({
-                    "title": r.get("title", ""),
-                    "snippet": r.get("body", ""),
-                    "source": "DuckDuckGo News",
-                    "link": r.get("url", "")
-                })
-    except:
-        pass
-    return all_results if all_results else None
-
-def extract_chart_data(user_message, web_results):
-    user_lower = user_message.lower()
-    chart_triggers = ['compare', 'comparison', 'chart', 'graph', 'statistics', 'data', 'numbers', 
-                      'population', 'gdp', 'price', 'percentage', 'how many', 'how much']
-    if not any(trigger in user_lower for trigger in chart_triggers): return None
-    chart_data = {}
-    if web_results:
-        for r in web_results:
-            snippet = r.get('snippet', '')
-            pairs = re.findall(r'(\w+(?:\s+\w+)?)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*(?:million|billion|%|percent)?', snippet, re.IGNORECASE)
-            for label, value in pairs[:3]: chart_data[label.strip()] = float(value)
-    return chart_data if len(chart_data) >= 2 else None
-
-# ========== SENTIMENT ANALYSIS ==========
-
 def analyze_sentiment(text):
-    """Simple sentiment detection based on keywords"""
     positive_words = ['thanks', 'great', 'awesome', 'good', 'love', 'excellent', 'wonderful', 'perfect', 'helpful', 'amazing']
     negative_words = ['bad', 'terrible', 'awful', 'hate', 'useless', 'stupid', 'wrong', 'poor', 'frustrating', 'confusing']
     frustrated_words = ['confused', 'dont understand', 'not clear', 'what do you mean', 'explain again', 'still dont get']
@@ -393,14 +335,6 @@ def analyze_sentiment(text):
     if neg_count > pos_count: return 'negative'
     if pos_count > 0: return 'positive'
     return 'neutral'
-
-def get_language_name(lang_code):
-    lang_map = {
-        'en': 'English', 'si': 'Sinhala', 'ta': 'Tamil', 'fr': 'French',
-        'es': 'Spanish', 'de': 'German', 'zh': 'Chinese', 'ja': 'Japanese',
-        'ko': 'Korean', 'ar': 'Arabic'
-    }
-    return lang_map.get(lang_code, 'English')
 
 def needs_real_time_info(user_message):
     user_lower = user_message.lower()
@@ -416,37 +350,13 @@ def needs_real_time_info(user_message):
     return any(indicator in user_lower for indicator in real_time_indicators)
 
 def generate_suggestions(user_message, response_text):
-    """Generate 3 follow-up questions based on context"""
-    suggestions = []
     user_lower = user_message.lower()
-    
-    # Generic follow-ups based on topic
     if 'what is' in user_lower or 'define' in user_lower:
-        suggestions = [
-            f"Can you give an example of {user_message.split('is')[-1].strip().rstrip('?')}?",
-            "Why is this important?",
-            "How does this relate to my course?"
-        ]
+        return ["Can you give an example?", "Why is this important?", "How does this relate to my course?"]
     elif 'how' in user_lower:
-        suggestions = [
-            "Can you explain step by step?",
-            "What are the prerequisites?",
-            "Are there any alternatives?"
-        ]
-    elif 'why' in user_lower:
-        suggestions = [
-            "What are the consequences?",
-            "Can you give a real-world example?",
-            "How does this affect me?"
-        ]
+        return ["Can you explain step by step?", "What are the prerequisites?", "Are there any alternatives?"]
     else:
-        suggestions = [
-            "Can you explain more?",
-            "What's an example of this?",
-            "How is this applied in practice?"
-        ]
-    
-    return suggestions[:3]
+        return ["Can you explain more?", "What's an example of this?", "How is this applied in practice?"]
 
 # ==================== ROUTES ====================
 
@@ -556,10 +466,37 @@ def chat():
             return jsonify({'response': 'AI service not available.'}), 500
         
         user_lower = user_message.lower().strip()
-        
-        # Sentiment analysis
         sentiment = analyze_sentiment(user_message)
         
+        # ========== DETECT FOLLOW-UP QUESTIONS ==========
+        follow_up_phrases = [
+            'explain more', 'tell me more', 'give me more', 'elaborate',
+            'what about', 'can you explain', 'go deeper', 'more details',
+            'more explanation', 'expand', 'further', 'in detail',
+            'what else', 'continue', 'and then', 'why is that',
+            'how does that', 'can you clarify', 'what does that mean',
+            'explain it', 'describe it', 'tell about it', 'what is it',
+            'tell me about it', 'elaborate on that', 'go on'
+        ]
+        is_follow_up = any(phrase in user_lower for phrase in follow_up_phrases) and len(user_message.split()) <= 8
+        
+        # ========== GET PREVIOUS TOPIC FROM HISTORY ==========
+        history = conversation_sessions.get(session_id, [])
+        recent_history = ""
+        previous_topic = ""
+        
+        if history:
+            last_messages = history[-6:]
+            for msg in last_messages:
+                role = "User" if msg['role'] == 'user' else "Assistant"
+                recent_history += f"{role}: {msg['content']}\n"
+            
+            # Get the last user question as the previous topic
+            last_user_msgs = [m['content'] for m in history if m['role'] == 'user']
+            if last_user_msgs:
+                previous_topic = last_user_msgs[-1]
+        
+        # ========== CLASSIFICATION ==========
         question_words = ['what', 'who', 'where', 'when', 'why', 'how', 'which', 'whose', 'whom', 'can you', 'could you', 'tell me', 'explain', 'define', 'describe']
         is_question = any(user_lower.startswith(q) for q in question_words) or user_message.strip().endswith('?')
         
@@ -581,14 +518,25 @@ def chat():
         needs_realtime = needs_real_time_info(user_message)
         is_casual = is_greeting or is_thanks or is_about_ai or is_user_personal
         
+        # ========== WEB SEARCH ==========
         web_results = None
         if needs_realtime and not is_casual:
             web_results = search_web(user_message)
         
+        # ========== DOCUMENT SEARCH (FIXED FOR FOLLOW-UPS) ==========
         doc_context = ""
+        
         if qdrant_client and embedding_model and not is_casual and not web_results:
+            # KEY FIX: For follow-ups, search using the PREVIOUS TOPIC
+            if is_follow_up and previous_topic:
+                search_query = previous_topic
+                print(f"🔍 Follow-up detected! Searching for previous topic: '{search_query}'")
+            else:
+                search_query = user_message
+                print(f"🔍 Searching for: '{search_query}'")
+            
             try:
-                query_embedding = embedding_model.encode(user_message).tolist()
+                query_embedding = embedding_model.encode(search_query).tolist()
                 search_results = qdrant_client.search(
                     collection_name="university_notes", query_vector=query_embedding, limit=3
                 )
@@ -596,7 +544,9 @@ def chat():
                     texts = []
                     for hit in search_results:
                         texts.append(hit.payload.get('text', ''))
-                    if texts: doc_context = "\n\n".join(texts[:3])
+                    if texts: 
+                        doc_context = "\n\n".join(texts[:3])
+                        print(f"✅ Found {len(texts)} document chunks")
             except Exception as e:
                 print(f"Search error: {e}")
         
@@ -633,6 +583,16 @@ def chat():
             system_prompt = "You are a helpful AI with web access. Answer in 1-3 SHORT sentences. Be direct."
             user_prompt = f"Web results:\n{web_context}\n\nQuestion: {user_message}\n\nShort answer:"
             max_tokens = 120
+        elif is_follow_up and doc_context:
+            # FOLLOW-UP WITH DOCUMENTS: Previous topic's notes + conversation history
+            system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP question about: '{previous_topic}'. Look at the conversation history and the reference material to expand on the previous topic. Answer in 2-4 sentences. Be helpful. NEVER mention notes, documents, or files."
+            user_prompt = f"PREVIOUS CONVERSATION:\n{recent_history}\n\nReference material about '{previous_topic}':\n{doc_context[:500]}\n\nFollow-up: {user_message}\n\nExpand on '{previous_topic}' in a helpful way:"
+            max_tokens = 150
+        elif is_follow_up and not doc_context:
+            # FOLLOW-UP WITHOUT DOCUMENTS: Use conversation history + AI knowledge
+            system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP question about: '{previous_topic}'. Use the conversation history and your own knowledge to expand on the topic. Answer in 2-4 sentences."
+            user_prompt = f"PREVIOUS CONVERSATION:\n{recent_history}\n\nFollow-up: {user_message}\n\nExpand on '{previous_topic}' using your knowledge:"
+            max_tokens = 150
         elif doc_context:
             system_prompt = "You are a helpful AI tutor. Answer in 1-3 SHORT sentences. Be direct. NEVER mention notes or documents."
             user_prompt = f"Reference (read silently):\n{doc_context[:500]}\n\nQuestion: {user_message}\n\nShort answer:"
@@ -685,13 +645,12 @@ def chat():
             if len(conversation_sessions[session_id]) > MAX_HISTORY:
                 conversation_sessions[session_id] = conversation_sessions[session_id][-MAX_HISTORY:]
             
-            # Generate suggestions
             suggestions = generate_suggestions(user_message, response_text)
             
             return jsonify({
                 'response': response_text,
                 'sources': [],
-                'mode': 'realtime' if web_results else ('study' if doc_context else 'general'),
+                'mode': 'followup' if is_follow_up else ('realtime' if web_results else ('study' if doc_context else 'general')),
                 'sentiment': sentiment,
                 'suggestions': suggestions
             })
@@ -702,7 +661,9 @@ def chat():
         print(f"Chat error: {e}")
         return jsonify({'response': "Sorry, I encountered an issue. Please try again!"}), 500
 
-# ========== EXPORT CHAT ==========
+def is_greeting_check(user_lower):
+    greetings = ['hi', 'hello', 'hey', 'morning', 'evening', 'sup', 'yo', 'hola']
+    return any(user_lower == g or user_lower.startswith(g + ' ') for g in greetings)
 
 @app.route('/export-chat', methods=['POST'])
 def export_chat():
@@ -721,16 +682,11 @@ def export_chat():
                 role = "👤 You" if msg['role'] == 'user' else "🤖 AI"
                 text += f"{role}: {msg['content']}\n\n"
             
-            return Response(
-                text,
-                mimetype='text/plain',
-                headers={'Content-Disposition': 'attachment;filename=chat_export.txt'}
-            )
+            return Response(text, mimetype='text/plain', headers={'Content-Disposition': 'attachment;filename=chat_export.txt'})
         elif format_type == 'json':
             return jsonify({'messages': messages, 'exported_at': str(pd.Timestamp.now())})
         else:
             return jsonify({'error': 'Unsupported format'}), 400
-            
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -749,7 +705,7 @@ def check_status():
         'api_connected': groq_connected,
         'qdrant_connected': qdrant_client is not None,
         'web_search': 'DuckDuckGo + Wikipedia + AnySearch (All Free)',
-        'features': ['memory', 'sentiment', 'suggestions', 'export', 'voice', 'charts', 'multi_language']
+        'features': ['memory', 'follow_up', 'sentiment', 'suggestions', 'export', 'voice', 'charts', 'multi_language']
     })
 
 @app.route('/admin/documents', methods=['GET'])
@@ -808,6 +764,7 @@ if __name__ == '__main__':
     print("🚀 SERVER STARTED")
     print(f"📚 Documents: {doc_count}")
     print(f"🧠 Memory: {MAX_HISTORY} messages per session")
+    print(f"💬 Follow-up Detection: Enabled (searches previous topic)")
     print(f"😊 Sentiment Analysis: Enabled")
     print(f"💡 Smart Suggestions: Enabled")
     print(f"📤 Chat Export: Enabled")
