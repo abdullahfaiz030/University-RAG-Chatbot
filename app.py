@@ -686,7 +686,8 @@ def chat():
                 try:
                     response_text = gemini_chat_completion(system_prompt=ctx['system_prompt'], contents=contents, model=model, max_tokens=ctx['max_tokens'], temperature=0.7)
                     if response_text: break
-                except: continue
+                except:
+                    continue
 
         if not response_text and groq_api_key:
             messages = [{"role": "system", "content": ctx['system_prompt']}]
@@ -696,7 +697,10 @@ def chat():
                 try:
                     response_text = groq_chat_completion(messages=messages, model=model, max_tokens=ctx['max_tokens'], temperature=0.7)
                     break
-                except: continue        if response_text:
+                except:
+                    continue
+
+        if response_text:
             response_text = postprocess_response(response_text, ctx)
             save_message(session_id, 'user', user_message)
             save_message(session_id, 'assistant', response_text)
@@ -731,7 +735,8 @@ def chat_stream():
                         yield f"data: {json.dumps({'delta': delta})}\n\n"
                     streamed_ok = True
                     break
-                except: full_response = ""
+                except:
+                    full_response = ""
 
         if not streamed_ok and groq_api_key:
             messages = [{"role": "system", "content": ctx['system_prompt']}]
@@ -744,7 +749,8 @@ def chat_stream():
                         yield f"data: {json.dumps({'delta': delta})}\n\n"
                     streamed_ok = True
                     break
-                except: full_response = ""
+                except:
+                    full_response = ""
 
         if not streamed_ok:
             yield f"data: {json.dumps({'error': 'AI service is having trouble.'})}\n\n"
