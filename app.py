@@ -63,7 +63,6 @@ print(f"🔑 GEMINI_API_KEY: {'SET' if gemini_key != 'NOT SET' else 'NOT SET'}")
 print(f"🔑 GROQ_API_KEY: {'SET' if groq_key != 'NOT SET' else 'NOT SET'}")
 print(f"🔑 QDRANT_URL: {'SET' if os.environ.get('QDRANT_URL') else 'NOT SET'}")
 
-
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -152,7 +151,6 @@ if groq_api_key:
             groq_connected = True
         except:
             print("❌ Groq failed")
-
 
 print("="*60 + "\n")
 
@@ -273,31 +271,33 @@ def groq_chat_completion(messages, model="llama-3.1-8b-instant", max_tokens=150,
     else:
         raise Exception(f"Groq API error: {response.status_code}")
 
-def gemini_chat_completion(system_prompt, user_prompt, model="gemini-2.0-flash", max_tokens=150, temperature=0.7):
+def gemini_chat_completion(messages, model="gemini-2.0-flash", max_tokens=150, temperature=0.7):
+    """Updated to accept full message array like Groq"""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_api_key}"
-    headers = {
-        "Content-Type": "application/json"
-    }
+    headers = {"Content-Type": "application/json"}
+    
+    # Convert messages to Gemini format
+    system_prompt = None
+    contents = []
+    
+    for msg in messages:
+        if msg["role"] == "system":
+            system_prompt = msg["content"]
+        elif msg["role"] == "user":
+            contents.append({"role": "user", "parts": [{"text": msg["content"]}]})
+        elif msg["role"] == "assistant":
+            contents.append({"role": "model", "parts": [{"text": msg["content"]}]})
+    
     payload = {
-        "contents": [
-            {
-                "role": "user",
-                "parts": [
-                    {"text": user_prompt}
-                ]
-            }
-        ],
+        "contents": contents,
         "generationConfig": {
             "temperature": temperature,
             "maxOutputTokens": max_tokens
         }
     }
+    
     if system_prompt:
-        payload["systemInstruction"] = {
-            "parts": [
-                {"text": system_prompt}
-            ]
-        }
+        payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
     
     response = requests.post(url, json=payload, headers=headers, timeout=30)
     if response.status_code == 200:
@@ -308,7 +308,6 @@ def gemini_chat_completion(system_prompt, user_prompt, model="gemini-2.0-flash",
             raise Exception("Unexpected Gemini API response structure")
     else:
         raise Exception(f"Gemini API error: {response.status_code} - {response.text}")
-
 
 def upload_to_hf_dataset(file_path, filename):
     if not hf_api or not hf_dataset:
@@ -530,16 +529,9 @@ def chat():
         
         # ========== GET PREVIOUS TOPIC FROM HISTORY ==========
         history = conversation_sessions.get(session_id, [])
-        recent_history = ""
         previous_topic = ""
         
         if history:
-            last_messages = history[-6:]
-            for msg in last_messages:
-                role = "User" if msg['role'] == 'user' else "Assistant"
-                recent_history += f"{role}: {msg['content']}\n"
-            
-            # Get the last user question as the previous topic
             last_user_msgs = [m['content'] for m in history if m['role'] == 'user']
             if last_user_msgs:
                 previous_topic = last_user_msgs[-1]
@@ -575,13 +567,10 @@ def chat():
         doc_context = ""
         
         if qdrant_client and embedding_model and not is_casual and not web_results:
-            # KEY FIX: For follow-ups, search using the PREVIOUS TOPIC
             if is_follow_up and previous_topic:
                 search_query = previous_topic
-                print(f"🔍 Follow-up detected! Searching for previous topic: '{search_query}'")
             else:
                 search_query = user_message
-                print(f"🔍 Searching for: '{search_query}'")
             
             try:
                 query_embedding = embedding_model.encode(search_query).tolist()
@@ -594,7 +583,6 @@ def chat():
                         texts.append(hit.payload.get('text', ''))
                     if texts: 
                         doc_context = "\n\n".join(texts[:3])
-                        print(f"✅ Found {len(texts)} document chunks")
             except Exception as e:
                 print(f"Search error: {e}")
         
@@ -602,27 +590,27 @@ def chat():
         
         if is_greeting:
             system_prompt = "You are a friendly AI. Give a SHORT greeting. 1 sentence only."
-            user_prompt = f"User: {user_message}\n\nShort greeting:"
+            user_prompt = user_message
             max_tokens = 30
         elif is_identity:
             system_prompt = "You are an AI assistant. In 1-2 short sentences, explain you're an AI created to help people learn."
-            user_prompt = f"User: {user_message}\n\nShort response:"
+            user_prompt = user_message
             max_tokens = 60
         elif is_location:
             system_prompt = "You are an AI. In 1 short sentence, explain you don't have a physical location."
-            user_prompt = f"User: {user_message}\n\nShort response:"
+            user_prompt = user_message
             max_tokens = 40
         elif is_user_personal:
             system_prompt = "In 1-2 short sentences, honestly say you don't know their name but you're happy to help."
-            user_prompt = f"User: {user_message}\n\nShort response:"
+            user_prompt = user_message
             max_tokens = 40
         elif is_thanks:
             system_prompt = "Respond to thanks in 1 very short, warm sentence."
-            user_prompt = f"User: {user_message}\n\nShort response:"
+            user_prompt = user_message
             max_tokens = 20
         elif sentiment == 'frustrated':
             system_prompt = "The user seems frustrated. Be extra patient and helpful. Break things down simply. Offer to re-explain. 2-3 sentences."
-            user_prompt = f"User seems confused: {user_message}\n\nPatient, helpful response:"
+            user_prompt = user_message
             max_tokens = 150
         elif web_results:
             web_context = ""
@@ -632,15 +620,13 @@ def chat():
             user_prompt = f"Web results:\n{web_context}\n\nQuestion: {user_message}\n\nShort answer:"
             max_tokens = 120
         elif is_follow_up and doc_context:
-            # FOLLOW-UP WITH DOCUMENTS: Previous topic's notes + conversation history
-            system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP question about: '{previous_topic}'. Look at the conversation history and the reference material to expand on the previous topic. Answer in 2-4 sentences. Be helpful. NEVER mention notes, documents, or files."
-            user_prompt = f"PREVIOUS CONVERSATION:\n{recent_history}\n\nReference material about '{previous_topic}':\n{doc_context[:500]}\n\nFollow-up: {user_message}\n\nExpand on '{previous_topic}' in a helpful way:"
-            max_tokens = 150
+            system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP question about: '{previous_topic}'. Use the conversation history and reference material to EXPAND on the topic. Give more details, examples, or deeper explanation. Answer in 3-5 sentences. NEVER mention notes or documents."
+            user_prompt = f"Reference material about '{previous_topic}':\n{doc_context[:500]}\n\nUser says: {user_message}\n\nExpand on '{previous_topic}' with more detail:"
+            max_tokens = 200
         elif is_follow_up and not doc_context:
-            # FOLLOW-UP WITHOUT DOCUMENTS: Use conversation history + AI knowledge
-            system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP question about: '{previous_topic}'. Use the conversation history and your own knowledge to expand on the topic. Answer in 2-4 sentences."
-            user_prompt = f"PREVIOUS CONVERSATION:\n{recent_history}\n\nFollow-up: {user_message}\n\nExpand on '{previous_topic}' using your knowledge:"
-            max_tokens = 150
+            system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP question about: '{previous_topic}'. Use the conversation history and your knowledge to EXPAND on the topic. Give more details. Answer in 3-5 sentences."
+            user_prompt = f"Previous topic: '{previous_topic}'. User says: {user_message}\n\nExpand on '{previous_topic}':"
+            max_tokens = 200
         elif doc_context:
             system_prompt = "You are a helpful AI tutor. Answer in 1-3 SHORT sentences. Be direct. NEVER mention notes or documents."
             user_prompt = f"Reference (read silently):\n{doc_context[:500]}\n\nQuestion: {user_message}\n\nShort answer:"
@@ -650,37 +636,50 @@ def chat():
             user_prompt = f"Question: {user_message}\n\nShort answer:"
             max_tokens = 100
         
+        # ========== BUILD MESSAGES WITH CONVERSATION HISTORY ==========
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # For follow-ups, include the last 4 messages as REAL conversation context
+        if is_follow_up and history:
+            last_exchanges = history[-4:]  # Last 2 exchanges
+            messages.extend(last_exchanges)
+            print(f"📝 Including {len(last_exchanges)} previous messages as context")
+        
+        # Add the current user message
+        messages.append({"role": "user", "content": user_prompt})
+        
         # ========== GET RESPONSE ==========
         response_text = None
         
+        # Try Gemini first
         if gemini_api_key:
-            gemini_models = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.0-flash-lite", "gemini-2.0-flash"]
+            gemini_models = ["gemini-2.0-flash", "gemini-2.0-flash-lite"]
             for model in gemini_models:
                 try:
                     response_text = gemini_chat_completion(
-                        system_prompt=system_prompt,
-                        user_prompt=user_prompt,
+                        messages=messages,
                         model=model,
                         max_tokens=max_tokens,
                         temperature=0.7
                     )
                     if response_text:
-                        print(f"✅ Generated response using Gemini ({model})")
+                        print(f"✅ Gemini ({model})")
                         break
                 except Exception as e:
-                    print(f"⚠️ Gemini model {model} failed: {e}")
+                    print(f"⚠️ Gemini {model}: {e}")
                     continue
         
+        # Fallback to Groq
         if not response_text and groq_client:
             models_to_try = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "mixtral-8x7b-32768"]
             if groq_client == "http_fallback":
                 for model in models_to_try:
                     try:
                         response_text = groq_chat_completion(
-                            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                            messages=messages,
                             model=model, max_tokens=max_tokens, temperature=0.7
                         )
-                        print(f"✅ Generated response using Groq fallback ({model})")
+                        print(f"✅ Groq fallback ({model})")
                         break
                     except: continue
             else:
@@ -688,11 +687,11 @@ def chat():
                     try:
                         completion = groq_client.chat.completions.create(
                             model=model,
-                            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                            messages=messages,
                             temperature=0.7, max_tokens=max_tokens
                         )
                         response_text = completion.choices[0].message.content
-                        print(f"✅ Generated response using Groq fallback ({model})")
+                        print(f"✅ Groq ({model})")
                         break
                     except: continue
         
@@ -833,11 +832,9 @@ if __name__ == '__main__':
     print("🚀 SERVER STARTED")
     print(f"📚 Documents: {doc_count}")
     print(f"🧠 Memory: {MAX_HISTORY} messages per session")
-    print(f"💬 Follow-up Detection: Enabled (searches previous topic)")
-    print(f"😊 Sentiment Analysis: Enabled")
-    print(f"💡 Smart Suggestions: Enabled")
-    print(f"📤 Chat Export: Enabled")
-    print(f"🔍 Web Search: DuckDuckGo + Wikipedia + AnySearch (All Free)")
+    print(f"💬 Follow-up Detection: Enabled")
+    print(f"🤖 Gemini API: {'Available' if gemini_connected else 'Not configured'}")
+    print(f"🔍 Groq API: {'Available' if groq_connected else 'Not configured'}")
     print(f"🌐 http://0.0.0.0:{port}/")
     print("="*60 + "\n")
     app.run(host='0.0.0.0', port=port, debug=False)
