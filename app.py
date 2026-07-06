@@ -5,7 +5,7 @@ warnings.filterwarnings('ignore')
 os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from sentence_transformers import SentenceTransformer
@@ -24,6 +24,7 @@ import time
 import re
 import uuid
 import requests
+from collections import defaultdict
 
 load_dotenv()
 
@@ -70,6 +71,10 @@ ADMIN_USERNAME = os.getenv('ADMIN_USERNAME', 'admin')
 ADMIN_PASSWORD_HASH = generate_password_hash(os.getenv('ADMIN_PASSWORD', 'Admin@123'))
 
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+# ========== CONVERSATION MEMORY ==========
+conversation_sessions = defaultdict(list)
+MAX_HISTORY = 20  # Keep last 20 messages per session
 
 print("\n" + "="*60)
 print("🔄 INITIALIZING...")
@@ -177,7 +182,6 @@ def extract_text_from_pdf(file_path):
     return text
 
 def extract_text_from_pptx(file_path):
-    """Extract text from PowerPoint (.pptx) files including tables"""
     text = ""
     try:
         prs = Presentation(file_path)
@@ -372,6 +376,24 @@ def extract_chart_data(user_message, web_results):
             for label, value in pairs[:3]: chart_data[label.strip()] = float(value)
     return chart_data if len(chart_data) >= 2 else None
 
+# ========== SENTIMENT ANALYSIS ==========
+
+def analyze_sentiment(text):
+    """Simple sentiment detection based on keywords"""
+    positive_words = ['thanks', 'great', 'awesome', 'good', 'love', 'excellent', 'wonderful', 'perfect', 'helpful', 'amazing']
+    negative_words = ['bad', 'terrible', 'awful', 'hate', 'useless', 'stupid', 'wrong', 'poor', 'frustrating', 'confusing']
+    frustrated_words = ['confused', 'dont understand', 'not clear', 'what do you mean', 'explain again', 'still dont get']
+    
+    text_lower = text.lower()
+    pos_count = sum(1 for w in positive_words if w in text_lower)
+    neg_count = sum(1 for w in negative_words if w in text_lower)
+    frus_count = sum(1 for w in frustrated_words if w in text_lower)
+    
+    if frus_count > 0: return 'frustrated'
+    if neg_count > pos_count: return 'negative'
+    if pos_count > 0: return 'positive'
+    return 'neutral'
+
 def get_language_name(lang_code):
     lang_map = {
         'en': 'English', 'si': 'Sinhala', 'ta': 'Tamil', 'fr': 'French',
@@ -392,6 +414,39 @@ def needs_real_time_info(user_message):
         'what is the capital', 'population of', 'weather in',
     ]
     return any(indicator in user_lower for indicator in real_time_indicators)
+
+def generate_suggestions(user_message, response_text):
+    """Generate 3 follow-up questions based on context"""
+    suggestions = []
+    user_lower = user_message.lower()
+    
+    # Generic follow-ups based on topic
+    if 'what is' in user_lower or 'define' in user_lower:
+        suggestions = [
+            f"Can you give an example of {user_message.split('is')[-1].strip().rstrip('?')}?",
+            "Why is this important?",
+            "How does this relate to my course?"
+        ]
+    elif 'how' in user_lower:
+        suggestions = [
+            "Can you explain step by step?",
+            "What are the prerequisites?",
+            "Are there any alternatives?"
+        ]
+    elif 'why' in user_lower:
+        suggestions = [
+            "What are the consequences?",
+            "Can you give a real-world example?",
+            "How does this affect me?"
+        ]
+    else:
+        suggestions = [
+            "Can you explain more?",
+            "What's an example of this?",
+            "How is this applied in practice?"
+        ]
+    
+    return suggestions[:3]
 
 # ==================== ROUTES ====================
 
@@ -436,8 +491,7 @@ def upload_file():
     failed = []
     
     for file in files:
-        if not file.filename:
-            continue
+        if not file.filename: continue
         try:
             filename = secure_filename(file.filename)
             file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -469,32 +523,22 @@ def upload_file():
                 for i, chunk in enumerate(chunks):
                     embedding = embedding_model.encode(chunk).tolist()
                     point_id = str(uuid.uuid4())
-                    points.append(PointStruct(
-                        id=point_id,
-                        vector=embedding,
-                        payload={
-                            "filename": filename,
-                            "text": chunk,
-                            "chunk_index": i,
-                            "category": category,
-                            "file_type": file_type,
-                            "upload_date": str(pd.Timestamp.now())
-                        }
-                    ))
+                    points.append(PointStruct(id=point_id, vector=embedding, payload={
+                        "filename": filename, "text": chunk, "chunk_index": i,
+                        "category": category, "file_type": file_type,
+                        "upload_date": str(pd.Timestamp.now())
+                    }))
                 
                 if qdrant_client:
                     qdrant_client.upsert(collection_name="university_notes", points=points)
-                    print(f"✅ Qdrant: {filename} ({len(chunks)} chunks)")
                 
                 upload_to_hf_dataset(file_path, filename)
                 uploaded.append({'name': filename, 'type': file_type.upper(), 'chunks': len(chunks)})
             else:
                 failed.append({'name': filename, 'reason': 'No text extracted'})
             
-            if os.path.exists(file_path):
-                os.remove(file_path)
+            if os.path.exists(file_path): os.remove(file_path)
         except Exception as e:
-            print(f"❌ {file.filename}: {e}")
             failed.append({'name': file.filename, 'reason': str(e)})
     
     return jsonify({'success': True, 'uploaded': uploaded, 'failed': failed})
@@ -504,6 +548,7 @@ def chat():
     try:
         data = request.json
         user_message = data.get('message', '').strip()
+        session_id = data.get('session_id', 'default')
         
         if not user_message:
             return jsonify({'response': 'Please type a message.'}), 400
@@ -511,6 +556,9 @@ def chat():
             return jsonify({'response': 'AI service not available.'}), 500
         
         user_lower = user_message.lower().strip()
+        
+        # Sentiment analysis
+        sentiment = analyze_sentiment(user_message)
         
         question_words = ['what', 'who', 'where', 'when', 'why', 'how', 'which', 'whose', 'whom', 'can you', 'could you', 'tell me', 'explain', 'define', 'describe']
         is_question = any(user_lower.startswith(q) for q in question_words) or user_message.strip().endswith('?')
@@ -548,12 +596,11 @@ def chat():
                     texts = []
                     for hit in search_results:
                         texts.append(hit.payload.get('text', ''))
-                    if texts:
-                        doc_context = "\n\n".join(texts[:3])
+                    if texts: doc_context = "\n\n".join(texts[:3])
             except Exception as e:
                 print(f"Search error: {e}")
         
-        # ========== PROMPTS (SHORT & DIRECT) ==========
+        # ========== BUILD PROMPTS ==========
         
         if is_greeting:
             system_prompt = "You are a friendly AI. Give a SHORT greeting. 1 sentence only."
@@ -575,11 +622,15 @@ def chat():
             system_prompt = "Respond to thanks in 1 very short, warm sentence."
             user_prompt = f"User: {user_message}\n\nShort response:"
             max_tokens = 20
+        elif sentiment == 'frustrated':
+            system_prompt = "The user seems frustrated. Be extra patient and helpful. Break things down simply. Offer to re-explain. 2-3 sentences."
+            user_prompt = f"User seems confused: {user_message}\n\nPatient, helpful response:"
+            max_tokens = 150
         elif web_results:
             web_context = ""
             for r in web_results[:3]:
                 web_context += f"📰 {r.get('title', '')}: {r.get('snippet', '')}\n\n"
-            system_prompt = "You are a helpful AI with web access. Answer in 1-3 SHORT sentences. Be direct. NO paragraphs."
+            system_prompt = "You are a helpful AI with web access. Answer in 1-3 SHORT sentences. Be direct."
             user_prompt = f"Web results:\n{web_context}\n\nQuestion: {user_message}\n\nShort answer:"
             max_tokens = 120
         elif doc_context:
@@ -603,8 +654,7 @@ def chat():
                         model=model, max_tokens=max_tokens, temperature=0.7
                     )
                     break
-                except:
-                    continue
+                except: continue
         else:
             for model in models_to_try:
                 try:
@@ -615,8 +665,7 @@ def chat():
                     )
                     response_text = completion.choices[0].message.content
                     break
-                except:
-                    continue
+                except: continue
         
         if response_text:
             response_text = re.sub(r'\*{1,3}', '', response_text)
@@ -630,13 +679,60 @@ def chat():
             if not response_text or len(response_text) < 2:
                 response_text = "How can I help you today?"
             
-            return jsonify({'response': response_text, 'sources': [], 'mode': 'realtime' if web_results else ('study' if doc_context else 'general')})
+            # Store in conversation history
+            conversation_sessions[session_id].append({"role": "user", "content": user_message})
+            conversation_sessions[session_id].append({"role": "assistant", "content": response_text})
+            if len(conversation_sessions[session_id]) > MAX_HISTORY:
+                conversation_sessions[session_id] = conversation_sessions[session_id][-MAX_HISTORY:]
+            
+            # Generate suggestions
+            suggestions = generate_suggestions(user_message, response_text)
+            
+            return jsonify({
+                'response': response_text,
+                'sources': [],
+                'mode': 'realtime' if web_results else ('study' if doc_context else 'general'),
+                'sentiment': sentiment,
+                'suggestions': suggestions
+            })
         else:
             return jsonify({'response': "I'm having trouble right now. Could you try asking again?"}), 500
             
     except Exception as e:
         print(f"Chat error: {e}")
         return jsonify({'response': "Sorry, I encountered an issue. Please try again!"}), 500
+
+# ========== EXPORT CHAT ==========
+
+@app.route('/export-chat', methods=['POST'])
+def export_chat():
+    try:
+        data = request.json
+        session_id = data.get('session_id', 'default')
+        format_type = data.get('format', 'txt')
+        
+        messages = conversation_sessions.get(session_id, [])
+        if not messages:
+            return jsonify({'error': 'No messages to export'}), 400
+        
+        if format_type == 'txt':
+            text = "📝 Chat Export\n" + "="*50 + "\n\n"
+            for msg in messages:
+                role = "👤 You" if msg['role'] == 'user' else "🤖 AI"
+                text += f"{role}: {msg['content']}\n\n"
+            
+            return Response(
+                text,
+                mimetype='text/plain',
+                headers={'Content-Disposition': 'attachment;filename=chat_export.txt'}
+            )
+        elif format_type == 'json':
+            return jsonify({'messages': messages, 'exported_at': str(pd.Timestamp.now())})
+        else:
+            return jsonify({'error': 'Unsupported format'}), 400
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/check-status', methods=['GET'])
 def check_status():
@@ -645,15 +741,15 @@ def check_status():
         try:
             info = qdrant_client.get_collection("university_notes")
             doc_count = info.points_count
-        except:
-            pass
+        except: pass
     return jsonify({
         'status': 'online',
         'documents_available': doc_count > 0,
         'document_count': doc_count,
         'api_connected': groq_connected,
         'qdrant_connected': qdrant_client is not None,
-        'web_search': 'DuckDuckGo + Wikipedia + AnySearch (All Free)'
+        'web_search': 'DuckDuckGo + Wikipedia + AnySearch (All Free)',
+        'features': ['memory', 'sentiment', 'suggestions', 'export', 'voice', 'charts', 'multi_language']
     })
 
 @app.route('/admin/documents', methods=['GET'])
@@ -671,15 +767,12 @@ def get_documents():
                 if filename and filename not in seen:
                     seen.add(filename)
                     docs.append({
-                        'filename': filename,
-                        'file_type': point.payload.get('file_type', ''),
+                        'filename': filename, 'file_type': point.payload.get('file_type', ''),
                         'category': point.payload.get('category', ''),
                         'upload_date': point.payload.get('upload_date', ''),
-                        'doc_id': point.id,
-                        'chunks': 1
+                        'doc_id': point.id, 'chunks': 1
                     })
-        except:
-            pass
+        except: pass
     return jsonify({'success': True, 'documents': docs})
 
 @app.route('/admin/delete/<doc_id>', methods=['DELETE'])
@@ -700,8 +793,7 @@ def get_admin_stats():
         try:
             info = qdrant_client.get_collection("university_notes")
             doc_count = info.points_count
-        except:
-            pass
+        except: pass
     return jsonify({'success': True, 'total_documents': doc_count, 'total_chunks': doc_count})
 
 if __name__ == '__main__':
@@ -711,12 +803,15 @@ if __name__ == '__main__':
         try:
             info = qdrant_client.get_collection("university_notes")
             doc_count = info.points_count
-        except:
-            pass
+        except: pass
     print("\n" + "="*60)
     print("🚀 SERVER STARTED")
     print(f"📚 Documents: {doc_count}")
-    print(f"🔍 Web Search: DuckDuckGo + Wikipedia + AnySearch (All Free & Unlimited)")
+    print(f"🧠 Memory: {MAX_HISTORY} messages per session")
+    print(f"😊 Sentiment Analysis: Enabled")
+    print(f"💡 Smart Suggestions: Enabled")
+    print(f"📤 Chat Export: Enabled")
+    print(f"🔍 Web Search: DuckDuckGo + Wikipedia + AnySearch (All Free)")
     print(f"🌐 http://0.0.0.0:{port}/")
     print("="*60 + "\n")
     app.run(host='0.0.0.0', port=port, debug=False)
