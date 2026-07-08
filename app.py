@@ -3,7 +3,6 @@ import sys
 import warnings
 warnings.filterwarnings('ignore')
 
-# Ensure console output handles UTF-8
 if sys.platform == "win32":
     try:
         sys.stdout.reconfigure(encoding='utf-8')
@@ -22,6 +21,7 @@ from sentence_transformers import SentenceTransformer
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 from huggingface_hub import HfApi
+from pymongo import MongoClient
 import PyPDF2
 import docx
 import pandas as pd
@@ -35,7 +35,6 @@ import re
 import uuid
 import requests
 import sqlite3
-from collections import defaultdict
 
 load_dotenv()
 
@@ -53,7 +52,7 @@ def load_hf_secrets():
                 print(f"⚠️ Could not load {secret_name}: {e}")
 
     for secret_name in ['GEMINI_API_KEY', 'GROQ_API_KEY', 'SECRET_KEY', 'ADMIN_USERNAME', 'ADMIN_PASSWORD',
-                         'QDRANT_URL', 'QDRANT_API_KEY', 'HF_TOKEN', 'HF_DATASET']:
+                         'QDRANT_URL', 'QDRANT_API_KEY', 'HF_TOKEN', 'HF_DATASET', 'MONGO_URI']:
         if not os.environ.get(secret_name):
             paths = [f'/etc/secrets/{secret_name}', f'/secrets/{secret_name}', f'/run/secrets/{secret_name}']
             for path in paths:
@@ -70,8 +69,10 @@ load_hf_secrets()
 
 gemini_key = os.environ.get('GEMINI_API_KEY', 'NOT SET')
 groq_key = os.environ.get('GROQ_API_KEY', 'NOT SET')
+mongo_uri = os.environ.get('MONGO_URI', 'NOT SET')
 print(f"🔑 GEMINI_API_KEY: {'SET' if gemini_key != 'NOT SET' else 'NOT SET'}")
 print(f"🔑 GROQ_API_KEY: {'SET' if groq_key != 'NOT SET' else 'NOT SET'}")
+print(f"🔑 MONGO_URI: {'SET' if mongo_uri != 'NOT SET' else 'NOT SET'}")
 print(f"🔑 QDRANT_URL: {'SET' if os.environ.get('QDRANT_URL') else 'NOT SET'}")
 
 app = Flask(__name__)
@@ -85,7 +86,25 @@ ADMIN_PASSWORD_HASH = generate_password_hash(os.getenv('ADMIN_PASSWORD', 'Admin@
 
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-# ========== PERSISTENT CONVERSATION MEMORY (SQLite) ==========
+# ========== MONGODB FOR STUDENT ACCOUNTS & CHAT SESSIONS ==========
+mongo_client = None
+users_collection = None
+sessions_collection = None
+
+try:
+    if mongo_uri != 'NOT SET':
+        mongo_client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+        db_mongo = mongo_client['chatbot_db']
+        users_collection = db_mongo['users']
+        sessions_collection = db_mongo['chat_sessions']
+        users_collection.create_index('email', unique=True)
+        print("✅ MongoDB connected (Users & Chat Sessions)")
+    else:
+        print("⚠️ MONGO_URI not set - student accounts disabled")
+except Exception as e:
+    print(f"⚠️ MongoDB connection failed: {e}")
+
+# ========== PERSISTENT CONVERSATION MEMORY (SQLite fallback) ==========
 DB_PATH = os.getenv('CHAT_DB_PATH', 'chat_history.db')
 MAX_HISTORY = 20
 
@@ -109,7 +128,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-def save_message(session_id, role, content):
+def save_message_sqlite(session_id, role, content):
     conn = get_db_connection()
     try:
         conn.execute(
@@ -120,7 +139,7 @@ def save_message(session_id, role, content):
     finally:
         conn.close()
 
-def get_session_history(session_id, limit=MAX_HISTORY):
+def get_session_history_sqlite(session_id, limit=MAX_HISTORY):
     conn = get_db_connection()
     try:
         cur = conn.execute(
@@ -132,7 +151,7 @@ def get_session_history(session_id, limit=MAX_HISTORY):
         conn.close()
     return [{'role': r, 'content': c} for r, c in reversed(rows)]
 
-def trim_session_history(session_id, keep=MAX_HISTORY):
+def trim_session_history_sqlite(session_id, keep=MAX_HISTORY):
     conn = get_db_connection()
     try:
         conn.execute('''
@@ -145,13 +164,65 @@ def trim_session_history(session_id, keep=MAX_HISTORY):
     finally:
         conn.close()
 
-def clear_session_history(session_id):
+def clear_session_history_sqlite(session_id):
     conn = get_db_connection()
     try:
         conn.execute('DELETE FROM messages WHERE session_id = ?', (session_id,))
         conn.commit()
     finally:
         conn.close()
+
+# Main DB methods with MongoDB priority, SQLite fallback
+
+def save_message(session_id, role, content, sources=None):
+    if sessions_collection:
+        try:
+            sessions_collection.update_one(
+                {'session_id': session_id},
+                {'$push': {'messages': {
+                    'role': role, 'content': content,
+                    'sources': sources or [], 'timestamp': datetime.utcnow()
+                }}},
+                upsert=True
+            )
+            return
+        except Exception as e:
+            print(f"MongoDB save error: {e}")
+    save_message_sqlite(session_id, role, content)
+
+def get_session_history(session_id, limit=MAX_HISTORY):
+    if sessions_collection:
+        try:
+            doc = sessions_collection.find_one({'session_id': session_id})
+            if doc and 'messages' in doc:
+                messages = doc['messages'][-limit:]
+                return [{'role': m['role'], 'content': m['content']} for m in messages]
+        except Exception as e:
+            print(f"MongoDB get error: {e}")
+    return get_session_history_sqlite(session_id, limit)
+
+def trim_session_history(session_id, keep=MAX_HISTORY):
+    if sessions_collection:
+        try:
+            doc = sessions_collection.find_one({'session_id': session_id})
+            if doc and 'messages' in doc and len(doc['messages']) > keep:
+                sessions_collection.update_one(
+                    {'session_id': session_id},
+                    {'$push': {'messages': {'$each': [], '$slice': -keep}}}
+                )
+            return
+        except Exception as e:
+            print(f"MongoDB trim error: {e}")
+    trim_session_history_sqlite(session_id, keep)
+
+def clear_session_history(session_id):
+    if sessions_collection:
+        try:
+            sessions_collection.delete_one({'session_id': session_id})
+            return
+        except Exception as e:
+            print(f"MongoDB clear error: {e}")
+    clear_session_history_sqlite(session_id)
 
 init_db()
 
@@ -220,6 +291,14 @@ def admin_required(f):
     def decorated_function(*args, **kwargs):
         if 'admin_logged_in' not in session:
             return redirect(url_for('admin_login_page'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'student_user' not in session:
+            return redirect(url_for('login_page'))
         return f(*args, **kwargs)
     return decorated_function
 
@@ -390,14 +469,6 @@ def gemini_chat_completion_stream(system_prompt, contents, model="gemini-2.0-fla
                 if delta: yield delta
             except (json.JSONDecodeError, KeyError, IndexError): continue
 
-def upload_to_hf_dataset(file_path, filename):
-    if not hf_api or not hf_dataset: return False
-    try:
-        path_in_repo = f"documents/{filename}"
-        hf_api.upload_file(path_or_fileobj=file_path, path_in_repo=path_in_repo, repo_id=hf_dataset, repo_type="dataset")
-        return True
-    except: return False
-
 # ========== WEB SEARCH ==========
 
 def search_duckduckgo(query):
@@ -473,7 +544,7 @@ def generate_suggestions(user_message, response_text):
 
 # ========== SHARED PROMPT-BUILDING LOGIC ==========
 
-def build_chat_context(user_message, session_id, length_control='medium'):
+def build_chat_context(user_message, session_id, length_control='medium', uploaded_context="", uploaded_filenames=None):
     user_lower = user_message.lower().strip()
     sentiment = analyze_sentiment(user_message)
 
@@ -531,6 +602,11 @@ def build_chat_context(user_message, session_id, length_control='medium'):
                 sources = list(dict.fromkeys(doc_names))
         except Exception as e: print(f"Search error: {e}")
 
+    if uploaded_context:
+        doc_context = uploaded_context + "\n" + doc_context
+    if uploaded_filenames:
+        sources = list(dict.fromkeys(sources + uploaded_filenames))
+
     # Build prompts
     if is_greeting:
         system_prompt = "You are a friendly AI. Give a SHORT greeting. 1 sentence only."
@@ -577,28 +653,22 @@ def build_chat_context(user_message, session_id, length_control='medium'):
         system_prompt = "You are a smart AI assistant. Answer in 1-3 SHORT sentences."
         user_prompt = f"Question: {user_message}\n\nShort answer:"
         max_tokens = 100
-    # Apply length control overrides
+
     if length_control == 'short':
         system_prompt += " IMPORTANT: Keep response extremely short and concise (1 sentence max)."
         max_tokens = 80
     elif length_control == 'detailed':
         system_prompt += " Provide a detailed explanation with formatting, bullet points, or code blocks where relevant."
         max_tokens = 1000
-    else: # medium
+    else:
         system_prompt += " Keep response to a medium length (2-4 sentences max)."
         max_tokens = 250
 
     return {
-        'system_prompt': system_prompt,
-        'user_prompt': user_prompt,
-        'max_tokens': max_tokens,
+        'system_prompt': system_prompt, 'user_prompt': user_prompt, 'max_tokens': max_tokens,
         'mode': 'followup' if is_follow_up else ('realtime' if web_results else ('study' if doc_context else 'general')),
-        'sentiment': sentiment,
-        'is_greeting': is_greeting,
-        'is_thanks': is_thanks,
-        'is_follow_up': is_follow_up,
-        'history_messages': history_messages,
-        'sources': sources,
+        'sentiment': sentiment, 'is_greeting': is_greeting, 'is_thanks': is_thanks,
+        'is_follow_up': is_follow_up, 'history_messages': history_messages, 'sources': sources,
     }
 
 def postprocess_response(text, ctx):
@@ -615,8 +685,139 @@ def postprocess_response(text, ctx):
 # ==================== ROUTES ====================
 
 @app.route('/')
+@login_required
 def index():
     return render_template('index.html')
+
+# ========== STUDENT AUTH (MongoDB) ==========
+
+@app.route('/login', methods=['GET', 'POST'])
+def login_page():
+    if request.method == 'POST':
+        if not users_collection:
+            return jsonify({'success': False, 'message': 'User system not available'}), 500
+        
+        data = request.json or {}
+        email = data.get('email', '').strip().lower()
+        password = data.get('password', '')
+        
+        if not email or not password:
+            return jsonify({'success': False, 'message': 'Email and password required'}), 400
+        
+        user = users_collection.find_one({'email': email})
+        if user and check_password_hash(user['password_hash'], password):
+            session.permanent = True
+            session['student_user'] = {
+                'id': str(user['_id']),
+                'email': email,
+                'name': user.get('name', email)
+            }
+            return jsonify({'success': True})
+        
+        return jsonify({'success': False, 'message': 'Invalid email or password'}), 401
+    
+    if 'student_user' in session:
+        return redirect(url_for('index'))
+    return render_template('login.html')
+
+@app.route('/signup', methods=['GET', 'POST'])
+def signup_page():
+    if request.method == 'POST':
+        if not users_collection:
+            return jsonify({'success': False, 'message': 'User system not available'}), 500
+        
+        data = request.json or {}
+        name = data.get('name', '').strip()
+        email = data.get('email', '').strip().lower()
+        password = data.get('password', '')
+        
+        if not name or not email or not password:
+            return jsonify({'success': False, 'message': 'All fields required'}), 400
+        if len(password) < 6:
+            return jsonify({'success': False, 'message': 'Password must be 6+ characters'}), 400
+        if users_collection.find_one({'email': email}):
+            return jsonify({'success': False, 'message': 'Email already registered'}), 400
+        
+        users_collection.insert_one({
+            'name': name, 'email': email,
+            'password_hash': generate_password_hash(password),
+            'created_at': datetime.utcnow()
+        })
+        
+        print(f"✅ New student: {name} ({email})")
+        return jsonify({'success': True, 'message': 'Registration successful! Please login.'})
+    
+    if 'student_user' in session:
+        return redirect(url_for('index'))
+    return render_template('signup.html')
+
+@app.route('/logout')
+def logout():
+    session.pop('student_user', None)
+    return redirect(url_for('login_page'))
+
+# ========== CHAT SESSION MANAGEMENT (MongoDB) ==========
+
+@app.route('/api/sessions', methods=['GET'])
+@login_required
+def api_get_sessions():
+    if not sessions_collection:
+        return jsonify({'success': True, 'sessions': []})
+    
+    try:
+        docs = sessions_collection.find({'user_email': session['student_user']['email']})
+        sessions_data = []
+        for doc in docs:
+            messages = doc.get('messages', [])
+            sessions_data.append({
+                'id': doc['session_id'],
+                'title': doc.get('title', 'New Chat'),
+                'messages': [{'role': m['role'], 'content': m['content']} for m in messages],
+                'timestamp': str(doc.get('_id').generation_time) if doc.get('_id') else ''
+            })
+        return jsonify({'success': True, 'sessions': sessions_data})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/sessions', methods=['POST'])
+@login_required
+def api_create_session():
+    data = request.json or {}
+    session_id = data.get('id')
+    title = data.get('title', 'New Chat')
+    if not session_id:
+        return jsonify({'success': False, 'message': 'Session ID required'}), 400
+    if sessions_collection:
+        try:
+            sessions_collection.update_one(
+                {'session_id': session_id},
+                {'$set': {'user_email': session['student_user']['email'], 'title': title}},
+                upsert=True
+            )
+        except Exception as e:
+            return jsonify({'success': False, 'message': str(e)}), 500
+    return jsonify({'success': True})
+
+@app.route('/api/sessions/update-title', methods=['POST'])
+@login_required
+def api_update_session_title():
+    data = request.json or {}
+    session_id = data.get('id')
+    title = data.get('title')
+    if not session_id or not title:
+        return jsonify({'success': False, 'message': 'Session ID and title required'}), 400
+    if sessions_collection:
+        sessions_collection.update_one({'session_id': session_id}, {'$set': {'title': title}})
+    return jsonify({'success': True})
+
+@app.route('/api/sessions/<session_id>', methods=['DELETE'])
+@login_required
+def api_delete_session(session_id):
+    if sessions_collection:
+        sessions_collection.delete_one({'session_id': session_id})
+    return jsonify({'success': True})
+
+# ========== ADMIN ROUTES ==========
 
 @app.route('/admin')
 def admin_login_page():
@@ -674,11 +875,9 @@ def upload_file():
                     embedding = embedding_model.encode(chunk).tolist()
                     points.append(PointStruct(id=str(uuid.uuid4()), vector=embedding, payload={
                         "filename": filename, "text": chunk, "chunk_index": i,
-                        "category": category, "file_type": file_type,
-                        "upload_date": str(pd.Timestamp.now())
+                        "category": category, "file_type": file_type, "upload_date": str(pd.Timestamp.now())
                     }))
                 if qdrant_client: qdrant_client.upsert(collection_name="university_notes", points=points)
-                upload_to_hf_dataset(file_path, filename)
                 uploaded.append({'name': filename, 'type': file_type.upper(), 'chunks': len(chunks)})
             else: failed.append({'name': filename, 'reason': 'No text extracted'})
             if os.path.exists(file_path): os.remove(file_path)
@@ -686,16 +885,49 @@ def upload_file():
     return jsonify({'success': True, 'uploaded': uploaded, 'failed': failed})
 
 @app.route('/chat', methods=['POST'])
+@login_required
 def chat():
     try:
-        data = request.json or {}
-        user_message = data.get('message', '').strip()
-        session_id = data.get('session_id', 'default')
-        length_control = data.get('length_control', 'medium')
+        uploaded_context = ""
+        uploaded_filenames = []
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            user_message = request.form.get('message', '').strip()
+            session_id = request.form.get('session_id', 'default')
+            length_control = request.form.get('length_control', 'medium')
+            files = request.files.getlist('files')
+        else:
+            data = request.get_json(silent=True) or {}
+            user_message = data.get('message', '').strip()
+            session_id = data.get('session_id', 'default')
+            length_control = data.get('length_control', 'medium')
+            files = []
+
+        for file in files:
+            if not file.filename: continue
+            try:
+                filename = secure_filename(file.filename)
+                file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_{uuid.uuid4()}_{filename}")
+                file.save(file_path)
+                file_type = filename.split('.')[-1].lower()
+                if file_type == 'pdf': file_text = extract_text_from_pdf(file_path)
+                elif file_type == 'pptx': file_text = extract_text_from_pptx(file_path)
+                elif file_type == 'docx': file_text = extract_text_from_docx(file_path)
+                elif file_type == 'txt': file_text = extract_text_from_txt(file_path)
+                else: file_text = extract_text_from_txt(file_path)
+                file_text = clean_text(file_text)
+                if file_text:
+                    uploaded_context += f"--- Content from uploaded file '{filename}' ---\n{file_text}\n\n"
+                    uploaded_filenames.append(filename)
+                if os.path.exists(file_path): os.remove(file_path)
+            except Exception as e: print(f"Error processing temp upload: {e}")
+
+        if not user_message and uploaded_filenames:
+            user_message = f"Describe the attached file: {', '.join(uploaded_filenames)}"
+
         if not user_message: return jsonify({'response': 'Please type a message.'}), 400
         if not gemini_api_key and not groq_api_key: return jsonify({'response': 'AI service not available.'}), 500
 
-        ctx = build_chat_context(user_message, session_id, length_control)
+        ctx = build_chat_context(user_message, session_id, length_control, uploaded_context, uploaded_filenames)
         response_text = None
 
         if gemini_api_key:
@@ -704,8 +936,7 @@ def chat():
                 try:
                     response_text = gemini_chat_completion(system_prompt=ctx['system_prompt'], contents=contents, model=model, max_tokens=ctx['max_tokens'], temperature=0.7)
                     if response_text: break
-                except:
-                    continue
+                except: continue
 
         if not response_text and groq_api_key:
             messages = [{"role": "system", "content": ctx['system_prompt']}]
@@ -715,8 +946,7 @@ def chat():
                 try:
                     response_text = groq_chat_completion(messages=messages, model=model, max_tokens=ctx['max_tokens'], temperature=0.7)
                     break
-                except:
-                    continue
+                except: continue
 
         if response_text:
             response_text = postprocess_response(response_text, ctx)
@@ -732,15 +962,47 @@ def chat():
         return jsonify({'response': "Sorry, an error occurred."}), 500
 
 @app.route('/chat/stream', methods=['POST'])
+@login_required
 def chat_stream():
-    data = request.json or {}
-    user_message = (data.get('message') or '').strip()
-    session_id = data.get('session_id', 'default')
-    length_control = data.get('length_control', 'medium')
+    uploaded_context, uploaded_filenames = "", []
+    if request.content_type and 'multipart/form-data' in request.content_type:
+        user_message = request.form.get('message', '').strip()
+        session_id = request.form.get('session_id', 'default')
+        length_control = request.form.get('length_control', 'medium')
+        files = request.files.getlist('files')
+    else:
+        data = request.get_json(silent=True) or {}
+        user_message = data.get('message', '').strip()
+        session_id = data.get('session_id', 'default')
+        length_control = data.get('length_control', 'medium')
+        files = []
+
+    for file in files:
+        if not file.filename: continue
+        try:
+            filename = secure_filename(file.filename)
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_{uuid.uuid4()}_{filename}")
+            file.save(file_path)
+            file_type = filename.split('.')[-1].lower()
+            if file_type == 'pdf': file_text = extract_text_from_pdf(file_path)
+            elif file_type == 'pptx': file_text = extract_text_from_pptx(file_path)
+            elif file_type == 'docx': file_text = extract_text_from_docx(file_path)
+            elif file_type == 'txt': file_text = extract_text_from_txt(file_path)
+            else: file_text = extract_text_from_txt(file_path)
+            file_text = clean_text(file_text)
+            if file_text:
+                uploaded_context += f"--- Content from uploaded file '{filename}' ---\n{file_text}\n\n"
+                uploaded_filenames.append(filename)
+            if os.path.exists(file_path): os.remove(file_path)
+        except Exception as e: print(f"Error processing temp upload: {e}")
+
+    if not user_message and uploaded_filenames:
+        user_message = f"Describe the attached file: {', '.join(uploaded_filenames)}"
+
     if not user_message: return jsonify({'error': 'Please type a message.'}), 400
     if not gemini_api_key and not groq_api_key: return jsonify({'error': 'AI service not available.'}), 500
 
-    ctx = build_chat_context(user_message, session_id, length_control)
+    ctx = build_chat_context(user_message, session_id, length_control, uploaded_context, uploaded_filenames)
 
     def event_stream():
         full_response = ""
@@ -754,8 +1016,7 @@ def chat_stream():
                         yield f"data: {json.dumps({'delta': delta})}\n\n"
                     streamed_ok = True
                     break
-                except:
-                    full_response = ""
+                except: full_response = ""
 
         if not streamed_ok and groq_api_key:
             messages = [{"role": "system", "content": ctx['system_prompt']}]
@@ -768,8 +1029,7 @@ def chat_stream():
                         yield f"data: {json.dumps({'delta': delta})}\n\n"
                     streamed_ok = True
                     break
-                except:
-                    full_response = ""
+                except: full_response = ""
 
         if not streamed_ok:
             yield f"data: {json.dumps({'error': 'AI service is having trouble.'})}\n\n"
@@ -787,12 +1047,12 @@ def chat_stream():
 # ========== SPECIAL FEATURES ==========
 
 @app.route('/generate-flashcards', methods=['POST'])
+@login_required
 def generate_flashcards():
     try:
         data = request.json or {}
         custom_topic = data.get('topic', '').strip()
         if not gemini_api_key and not groq_api_key: return jsonify({'error': 'AI service not available.'}), 500
-
         doc_context = ""
         if qdrant_client and embedding_model:
             try:
@@ -804,11 +1064,9 @@ def generate_flashcards():
                     results = qdrant_client.scroll(collection_name="university_notes", limit=5)
                     if results[0]: doc_context = "\n\n".join([h.payload.get('text', '') for h in results[0]])
             except Exception as e: print(f"Flashcards search error: {e}")
-
         system_prompt = "Generate exactly 10 flashcards. Respond ONLY with a valid JSON array: [{\"question\": \"...\", \"answer\": \"...\"}]"
         user_prompt = f"Generate 10 flashcards. Topic: {custom_topic or 'General'}"
         if doc_context: user_prompt += f"\n\nContext:\n{doc_context[:2000]}"
-
         response_text = None
         if gemini_api_key:
             for model in GEMINI_MODELS:
@@ -822,9 +1080,7 @@ def generate_flashcards():
                     response_text = groq_chat_completion(messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}], model=model, max_tokens=1000, temperature=0.7)
                     break
                 except: continue
-
         if not response_text: return jsonify({'error': 'Failed to generate flashcards.'}), 500
-
         raw = response_text.strip()
         if raw.startswith("```"): raw = re.sub(r'^```(?:json)?\n', '', raw); raw = re.sub(r'\n```$', '', raw)
         try:
@@ -836,20 +1092,19 @@ def generate_flashcards():
                 match = re.search(r'\[\s*\{.*\}\s*\]', raw, re.DOTALL)
                 if match: flashcards = json.loads(match.group(0)); return jsonify({'success': True, 'flashcards': flashcards})
             except: pass
-
         return jsonify({'success': True, 'flashcards': [{"question": "What is a project?", "answer": "A temporary endeavor to create a unique product or service."}], 'note': 'Using fallback cards'})
     except Exception as e:
         print(f"Flashcards error: {e}")
         return jsonify({'error': 'An internal error occurred.'}), 500
 
 @app.route('/generate-summary', methods=['POST'])
+@login_required
 def generate_summary():
     try:
         data = request.json or {}
         topic = data.get('topic', '').strip()
         if not topic: return jsonify({'error': 'Please provide a topic.'}), 400
         if not gemini_api_key and not groq_api_key: return jsonify({'error': 'AI service not available.'}), 500
-
         doc_context = ""
         if qdrant_client and embedding_model:
             try:
@@ -858,10 +1113,8 @@ def generate_summary():
                 if results: doc_context = "\n\n".join([h.payload.get('text', '') for h in results])
             except: pass
         if not doc_context: return jsonify({'error': 'No relevant documents found.'}), 404
-
         system_prompt = "You are an academic summarizer. Create a structured Markdown summary with headings, subheadings, and bullet points."
         user_prompt = f"Topic: {topic}\n\nNotes:\n{doc_context[:3000]}\n\nSummary:"
-
         response_text = None
         if gemini_api_key:
             for model in GEMINI_MODELS:
@@ -875,7 +1128,6 @@ def generate_summary():
                     response_text = groq_chat_completion(messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}], model=model, max_tokens=1500, temperature=0.5)
                     break
                 except: continue
-
         if response_text: return jsonify({'success': True, 'summary': response_text.strip()})
         return jsonify({'error': 'Failed to generate summary.'}), 500
     except Exception as e:
@@ -915,12 +1167,11 @@ def check_status():
     if qdrant_client:
         try: doc_count = qdrant_client.get_collection("university_notes").points_count
         except: pass
+    user_count = users_collection.count_documents({}) if users_collection else 0
     return jsonify({
-        'status': 'online',
-        'documents_available': doc_count > 0,
-        'document_count': doc_count,
-        'api_connected': gemini_connected or groq_connected,
-        'qdrant_connected': qdrant_client is not None,
+        'status': 'online', 'documents_available': doc_count > 0, 'document_count': doc_count,
+        'api_connected': gemini_connected or groq_connected, 'qdrant_connected': qdrant_client is not None,
+        'user_system': users_collection is not None, 'total_users': user_count,
         'features': ['persistent_memory', 'streaming', 'follow_up', 'flashcards', 'summaries', 'sentiment', 'suggestions', 'export']
     })
 
@@ -944,27 +1195,11 @@ def get_documents():
 @admin_required
 def delete_document(doc_id):
     try:
-        if qdrant_client: qdrant_client.delete(collection_name="university_notes", points_selector=[doc_id])
-        return jsonify({'success': True})
-    except: return jsonify({'success': False}), 500
-
-@app.route('/admin/rename/<doc_id>', methods=['PATCH'])
-@admin_required
-def rename_document(doc_id):
-    try:
-        data = request.get_json()
-        new_name = data.get('new_name', '').strip()
-        if not new_name: return jsonify({'success': False, 'message': 'New name required'}), 400
         if qdrant_client:
-            results = qdrant_client.scroll(collection_name="university_notes", with_payload=True, with_vectors=False)
-            for point in results[0]:
-                if point.id == doc_id or point.payload.get('doc_id') == doc_id:
-                    point.payload['filename'] = new_name
-                    qdrant_client.upsert(collection_name="university_notes", points=[point])
-                    return jsonify({'success': True, 'new_name': new_name})
-            return jsonify({'success': False, 'message': 'Document not found'}), 404
-        return jsonify({'success': False}), 500
+            qdrant_client.delete(collection_name="university_notes", points_selector=[doc_id])
+        return jsonify({'success': True})
     except Exception as e:
+        print(f"Delete document error: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/admin/stats')
@@ -974,7 +1209,8 @@ def get_admin_stats():
     if qdrant_client:
         try: doc_count = qdrant_client.get_collection("university_notes").points_count
         except: pass
-    return jsonify({'success': True, 'total_documents': doc_count, 'total_chunks': doc_count})
+    user_count = users_collection.count_documents({}) if users_collection else 0
+    return jsonify({'success': True, 'total_documents': doc_count, 'total_chunks': doc_count, 'total_users': user_count})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 7860))
@@ -985,11 +1221,11 @@ if __name__ == '__main__':
     print("\n" + "="*60)
     print("🚀 SERVER STARTED")
     print(f"📚 Documents: {doc_count}")
-    print(f"🧠 Memory: SQLite ({DB_PATH})")
+    print(f"👥 Users: {users_collection.count_documents({}) if users_collection else 0}")
+    print(f"🧠 Memory: MongoDB + SQLite fallback")
     print(f"📡 Streaming: /chat/stream")
     print(f"🃏 Flashcards: /generate-flashcards")
     print(f"📝 Summaries: /generate-summary")
-    print(f"💬 Follow-up: Enabled")
     print(f"🔍 Web Search: DuckDuckGo + Wikipedia + AnySearch")
     print(f"🌐 http://0.0.0.0:{port}/")
     print("="*60 + "\n")

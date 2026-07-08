@@ -16,3 +16,4 @@ requests
 httpx
 duckduckgo-search==6.3.0
 python-pptx==0.6.23
+firebase-admin
