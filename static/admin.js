@@ -14,9 +14,20 @@ document.addEventListener('DOMContentLoaded', () => {
     setupNavigationListeners();
     loadFolderStructure();
     loadStats();
+
+    // Restore last active section or check URL hash
+    const hash = window.location.hash.replace('#', '');
+    if (hash && ['upload', 'documents', 'browse', 'stats'].includes(hash)) {
+        navigateToSection(hash, false);
+    } else {
+        const savedSection = sessionStorage.getItem('adminCurrentSection');
+        if (savedSection && ['upload', 'documents', 'browse', 'stats'].includes(savedSection)) {
+            navigateToSection(savedSection, false);
+        }
+    }
 });
 
-// ============ FIXED NAVIGATION ============
+// ============ FIXED NAVIGATION WITH BROWSER HISTORY ============
 
 function setupNavigationListeners() {
     // Add click listeners to all nav items
@@ -24,12 +35,25 @@ function setupNavigationListeners() {
         item.addEventListener('click', function (e) {
             e.preventDefault();
             const sectionName = this.getAttribute('href').replace('#', '');
-            navigateToSection(sectionName);
+            navigateToSection(sectionName, true);
         });
+    });
+
+    // Listen for browser back/forward buttons
+    window.addEventListener('popstate', function (event) {
+        if (event.state && event.state.section) {
+            navigateToSection(event.state.section, false);
+        } else {
+            // If no state, go to default (upload)
+            navigateToSection('upload', false);
+        }
     });
 }
 
-function navigateToSection(sectionName) {
+function navigateToSection(sectionName, addToHistory) {
+    // Default to true if not specified
+    if (addToHistory === undefined) addToHistory = true;
+
     // Update nav active state
     document.querySelectorAll('.nav-item').forEach(item => {
         item.classList.remove('active');
@@ -48,6 +72,21 @@ function navigateToSection(sectionName) {
         targetSection.classList.add('active');
     }
 
+    // Update browser history
+    if (addToHistory) {
+        const state = { section: sectionName };
+        const url = '#' + sectionName;
+        history.pushState(state, '', url);
+    } else {
+        // Replace current state without adding new entry
+        const state = { section: sectionName };
+        const url = '#' + sectionName;
+        history.replaceState(state, '', url);
+    }
+
+    // Save current section
+    sessionStorage.setItem('adminCurrentSection', sectionName);
+
     // Load data for the section
     if (sectionName === 'documents') loadDocuments();
     if (sectionName === 'browse') {
@@ -56,9 +95,9 @@ function navigateToSection(sectionName) {
     if (sectionName === 'stats') loadStats();
 }
 
-// Keep old showSection for backward compatibility but make it call the new function
+// Keep old showSection for backward compatibility
 function showSection(sectionName) {
-    navigateToSection(sectionName);
+    navigateToSection(sectionName, true);
 }
 
 // ============ FOLDER STRUCTURE ============
@@ -134,7 +173,7 @@ function enterFolder(type, folderName) {
     else if (type === 'browse') { browsePath.push(folderName); renderBrowseView(); }
 }
 
-// Make goToPath globally accessible for onclick handlers
+// Make functions globally accessible for onclick handlers
 window.goToPath = goToPath;
 window.enterFolder = enterFolder;
 
@@ -281,10 +320,10 @@ function updateBreadcrumb(type) {
     const breadcrumbId = (type === 'upload') ? 'uploadBreadcrumb' : 'browseBreadcrumb';
     const breadcrumb = document.getElementById(breadcrumbId);
     if (!breadcrumb) return;
-    let html = `<span onclick="window.goToPath('${type}',0)" style="color:var(--primary-light);cursor:pointer;font-weight:500;padding:4px 8px;border-radius:6px;display:inline-block;">🏠 Root</span>`;
+    let html = `<span onclick="window.goToPath('${type}',0)" style="color:var(--primary-light);cursor:pointer;font-weight:500;padding:4px 8px;border-radius:6px;display:inline-block;" onmouseover="this.style.background='rgba(99,102,241,0.15)'" onmouseout="this.style.background='transparent'">🏠 Root</span>`;
     path.forEach((part, index) => {
         html += ` <span style="color:var(--text-secondary);">›</span> `;
-        html += `<span onclick="window.goToPath('${type}',${index + 1})" style="color:var(--primary-light);cursor:pointer;font-weight:500;padding:4px 8px;border-radius:6px;display:inline-block;">📁 ${part}</span>`;
+        html += `<span onclick="window.goToPath('${type}',${index + 1})" style="color:var(--primary-light);cursor:pointer;font-weight:500;padding:4px 8px;border-radius:6px;display:inline-block;" onmouseover="this.style.background='rgba(99,102,241,0.15)'" onmouseout="this.style.background='transparent'">📁 ${part}</span>`;
     });
     breadcrumb.innerHTML = html;
 }
