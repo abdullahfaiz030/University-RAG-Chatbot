@@ -11,22 +11,54 @@ let browsePath = [];
 document.addEventListener('DOMContentLoaded', () => {
     setupUploadZone();
     setupCategorySelector();
+    setupNavigationListeners();
     loadFolderStructure();
     loadStats();
 });
 
-function showSection(sectionName) {
-    document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
-    event.target.closest('.nav-item').classList.add('active');
+// ============ FIXED NAVIGATION ============
 
-    document.querySelectorAll('.content-section').forEach(section => section.classList.remove('active'));
-    document.getElementById(`${sectionName}-section`).classList.add('active');
+function setupNavigationListeners() {
+    // Add click listeners to all nav items
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', function (e) {
+            e.preventDefault();
+            const sectionName = this.getAttribute('href').replace('#', '');
+            navigateToSection(sectionName);
+        });
+    });
+}
 
+function navigateToSection(sectionName) {
+    // Update nav active state
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.classList.remove('active');
+        if (item.getAttribute('href') === '#' + sectionName) {
+            item.classList.add('active');
+        }
+    });
+
+    // Show the correct section
+    document.querySelectorAll('.content-section').forEach(section => {
+        section.classList.remove('active');
+    });
+
+    const targetSection = document.getElementById(sectionName + '-section');
+    if (targetSection) {
+        targetSection.classList.add('active');
+    }
+
+    // Load data for the section
     if (sectionName === 'documents') loadDocuments();
     if (sectionName === 'browse') {
         loadFolderStructure().then(() => renderBrowseView());
     }
     if (sectionName === 'stats') loadStats();
+}
+
+// Keep old showSection for backward compatibility but make it call the new function
+function showSection(sectionName) {
+    navigateToSection(sectionName);
 }
 
 // ============ FOLDER STRUCTURE ============
@@ -85,7 +117,7 @@ function countFolderItems(structure) {
     return total;
 }
 
-// ============ NAVIGATION ============
+// ============ NAVIGATION (BREADCRUMB) ============
 
 function goToPath(type, depth) {
     if (type === 'upload') {
@@ -101,6 +133,10 @@ function enterFolder(type, folderName) {
     if (type === 'upload') { uploadPath.push(folderName); renderUploadFolders(); }
     else if (type === 'browse') { browsePath.push(folderName); renderBrowseView(); }
 }
+
+// Make goToPath globally accessible for onclick handlers
+window.goToPath = goToPath;
+window.enterFolder = enterFolder;
 
 // ============ CATEGORY MANAGEMENT ============
 
@@ -162,7 +198,7 @@ function renderUploadFolders() {
         container.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--text-secondary);"><i class="fas fa-folder-open" style="font-size:40px;opacity:0.3;margin-bottom:10px;display:block;"></i><p>This folder is empty</p><p style="font-size:11px;">Create a subfolder or upload files here</p></div>`;
     } else {
         container.innerHTML = folders.map(([name, folder]) => `
-            <div class="folder-card" onclick="enterFolder('upload', '${name.replace(/'/g, "\\'")}')">
+            <div class="folder-card" onclick="window.enterFolder('upload', '${name.replace(/'/g, "\\'")}')">
                 <i class="fas fa-folder folder-icon" style="color:${getFolderColor(name)};"></i>
                 <div class="folder-name">${name}</div>
                 <div class="folder-info">${folder.totalItems || 0} items</div>
@@ -199,7 +235,7 @@ function renderBrowseFolders() {
                 <div class="folder-info">${Object.keys(folder.subfolders || {}).length} subfolders • ${(folder.files || []).length} files</div>
                 <span class="folder-badge">${folder.totalItems || 0}</span>
                 <div style="display:flex;gap:6px;margin-top:8px;">
-                    <button class="action-btn" onclick="event.stopPropagation();enterFolder('browse','${name.replace(/'/g, "\\'")}')" style="flex:1;"><i class="fas fa-arrow-right"></i> Open</button>
+                    <button class="action-btn" onclick="event.stopPropagation();window.enterFolder('browse','${name.replace(/'/g, "\\'")}')" style="flex:1;"><i class="fas fa-arrow-right"></i> Open</button>
                     <button class="action-btn" onclick="event.stopPropagation();renameFolder('${name.replace(/'/g, "\\'")}')" title="Rename"><i class="fas fa-edit"></i></button>
                     <button class="action-btn delete-btn" onclick="event.stopPropagation();deleteFolder('${name.replace(/'/g, "\\'")}')" title="Delete"><i class="fas fa-trash"></i></button>
                 </div>
@@ -245,15 +281,13 @@ function updateBreadcrumb(type) {
     const breadcrumbId = (type === 'upload') ? 'uploadBreadcrumb' : 'browseBreadcrumb';
     const breadcrumb = document.getElementById(breadcrumbId);
     if (!breadcrumb) return;
-    let html = `<span onclick="window.goToBreadcrumb('${type}',0)" style="color:var(--primary-light);cursor:pointer;font-weight:500;padding:4px 8px;border-radius:6px;display:inline-block;">🏠 Root</span>`;
+    let html = `<span onclick="window.goToPath('${type}',0)" style="color:var(--primary-light);cursor:pointer;font-weight:500;padding:4px 8px;border-radius:6px;display:inline-block;">🏠 Root</span>`;
     path.forEach((part, index) => {
         html += ` <span style="color:var(--text-secondary);">›</span> `;
-        html += `<span onclick="window.goToBreadcrumb('${type}',${index + 1})" style="color:var(--primary-light);cursor:pointer;font-weight:500;padding:4px 8px;border-radius:6px;display:inline-block;">📁 ${part}</span>`;
+        html += `<span onclick="window.goToPath('${type}',${index + 1})" style="color:var(--primary-light);cursor:pointer;font-weight:500;padding:4px 8px;border-radius:6px;display:inline-block;">📁 ${part}</span>`;
     });
     breadcrumb.innerHTML = html;
 }
-
-window.goToBreadcrumb = function (type, depth) { goToPath(type, depth); };
 
 // ============ CREATE FOLDER ============
 
