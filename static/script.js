@@ -15,11 +15,9 @@ let selectedLanguage = 'en';
 let recognition = null;
 let isVoiceOutputEnabled = true;
 
-// Speech Synthesis (Read Aloud) Globals
 let currentUtterance = null;
 let currentSpeakButton = null;
 
-// Session Management Globals
 let chatSessions = [];
 let sessionId = null;
 
@@ -263,8 +261,6 @@ async function checkSystemStatus() {
     }
 }
 
-// ========== VOICE OUTPUT TOGGLE ==========
-
 function toggleVoiceOutput() {
     isVoiceOutputEnabled = !isVoiceOutputEnabled;
     const toggleBtn = document.getElementById('voiceOutputToggle');
@@ -454,10 +450,7 @@ function formatMessage(text) {
     const codeBlocks = [];
     escaped = escaped.replace(/```(\w*)\n([\s\S]*?)```/g, function (match, lang, code) {
         const placeholder = `__CODE_BLOCK_PLACEHOLDER_${codeBlocks.length}__`;
-        codeBlocks.push({
-            lang: lang || 'code',
-            code: code.trim()
-        });
+        codeBlocks.push({ lang: lang || 'code', code: code.trim() });
         return placeholder;
     });
 
@@ -470,45 +463,28 @@ function formatMessage(text) {
         let line = lines[i].trim();
         if (line.startsWith('- ') || line.startsWith('* ')) {
             let content = line.substring(2);
-            if (!inList) {
-                lines[i] = '<ul><li>' + content + '</li>';
-                inList = true;
-            } else {
-                lines[i] = '<li>' + content + '</li>';
-            }
+            if (!inList) { lines[i] = '<ul><li>' + content + '</li>'; inList = true; }
+            else { lines[i] = '<li>' + content + '</li>'; }
         } else {
-            if (inList) {
-                lines[i] = '</ul>' + lines[i];
-                inList = false;
-            }
+            if (inList) { lines[i] = '</ul>' + lines[i]; inList = false; }
         }
     }
-    if (inList) {
-        lines.push('</ul>');
-    }
+    if (inList) { lines.push('</ul>'); }
     escaped = lines.join('\n');
     escaped = escaped.replace(/\n/g, '<br>');
     escaped = escaped.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" style="color: #3b82f6; font-weight: 500;">$1</a>');
 
     codeBlocks.forEach((block, index) => {
         const blockHtml = `<div class="code-block-wrapper">
-            <div class="code-block-header">
-                <span>${block.lang}</span>
-                <button class="copy-code-btn" onclick="copyCodeText(this)"><i class="far fa-copy"></i> Copy</button>
-            </div>
-            <pre><code>${block.code}</code></pre>
-        </div>`;
+            <div class="code-block-header"><span>${block.lang}</span><button class="copy-code-btn" onclick="copyCodeText(this)"><i class="far fa-copy"></i> Copy</button></div>
+            <pre><code>${block.code}</code></pre></div>`;
         escaped = escaped.replace(`__CODE_BLOCK_PLACEHOLDER_${index}__`, blockHtml);
     });
 
     return escaped;
 }
 
-function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-}
+function escapeHtml(str) { const div = document.createElement('div'); div.textContent = str; return div.innerHTML; }
 
 function copyCodeText(button) {
     const code = button.parentElement.nextElementSibling.querySelector('code');
@@ -581,8 +557,6 @@ function exportCurrentChat() {
     showToast('Exported!');
 }
 
-function escapeHtml(str) { const d = document.createElement('div'); d.textContent = str; return d.innerHTML; }
-
 function showToast(message) {
     const toast = document.createElement('div');
     toast.style.cssText = `position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--primary);color:white;padding:10px 20px;border-radius:20px;font-size:13px;z-index:1000;`;
@@ -602,13 +576,14 @@ function switchTab(tabName) {
     if (tabName === currentTab) return;
     currentTab = tabName;
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.getElementById(tabName === 'chat' ? 'tabBtnChat' : 'tabBtnFlashcards').classList.add('active');
+    const tabMap = { 'chat': 'tabBtnChat', 'flashcards': 'tabBtnFlashcards', 'studyplan': 'tabBtnStudyPlan' };
+    if (tabMap[tabName]) document.getElementById(tabMap[tabName]).classList.add('active');
     document.querySelectorAll('.tab-section').forEach(s => { s.classList.remove('active'); s.style.display = 'none'; });
-    const sec = document.getElementById(`${tabName}Section`);
-    sec.classList.add('active');
-    sec.style.display = 'flex';
+    const secMap = { 'chat': 'chatSection', 'flashcards': 'flashcardsSection', 'studyplan': 'studyplanSection' };
+    const sec = document.getElementById(secMap[tabName]);
+    if (sec) { sec.classList.add('active'); sec.style.display = 'flex'; }
     if (tabName === 'chat') userInput.focus();
-    else document.getElementById('flashcardTopic').focus();
+    else if (tabName === 'flashcards') document.getElementById('flashcardTopic').focus();
 }
 
 async function generateFlashcards() {
@@ -669,7 +644,35 @@ const style = document.createElement('style');
 style.textContent = `@keyframes fadeOut { from{opacity:1;transform:translateY(0);} to{opacity:0;transform:translateY(-10px);} }`;
 document.head.appendChild(style);
 
-// ========== STUDY PLAN GENERATOR ==========
+// ========== STUDY PLAN GENERATOR (FIXED) ==========
+
+function parseStudyPlanJSON(rawText) {
+    // Try multiple strategies to extract JSON from the response
+    let cleanText = rawText.trim();
+
+    // Strategy 1: Extract from markdown code block
+    let match = cleanText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+    if (match) {
+        try { return JSON.parse(match[1].trim()); } catch (e) { }
+    }
+
+    // Strategy 2: Find the outermost JSON object
+    let startIdx = cleanText.indexOf('{');
+    let endIdx = cleanText.lastIndexOf('}');
+    if (startIdx >= 0 && endIdx > startIdx) {
+        try { return JSON.parse(cleanText.substring(startIdx, endIdx + 1)); } catch (e) { }
+    }
+
+    // Strategy 3: Remove markdown code fences and try again
+    cleanText = cleanText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    startIdx = cleanText.indexOf('{');
+    endIdx = cleanText.lastIndexOf('}');
+    if (startIdx >= 0 && endIdx > startIdx) {
+        try { return JSON.parse(cleanText.substring(startIdx, endIdx + 1)); } catch (e) { }
+    }
+
+    return null;
+}
 
 async function generateStudyPlan() {
     const examDate = document.getElementById('studyExamDate').value;
@@ -695,17 +698,33 @@ async function generateStudyPlan() {
 
         if (data.success && data.study_plan) {
             let plan = data.study_plan;
-            // If the response is a string (raw response), parse it
-            if (plan.raw_response && typeof plan.overview === 'string') {
-                // Try to extract JSON from the string
-                const jsonMatch = plan.overview.match(/```json\s*([\s\S]*?)\s*```/) || plan.overview.match(/(\{[\s\S]*\})/);
-                if (jsonMatch) {
-                    try {
-                        const parsed = JSON.parse(jsonMatch[1] || jsonMatch[0]);
-                        plan = { ...parsed, days_until_exam: plan.days_until_exam, total_study_hours: plan.total_study_hours, subjects: plan.subjects };
-                    } catch (e) { /* keep raw */ }
+
+            // Try to parse JSON from the overview text
+            if (plan.overview && typeof plan.overview === 'string' && plan.overview.includes('{')) {
+                const parsed = parseStudyPlanJSON(plan.overview);
+                if (parsed && parsed.subjects_breakdown) {
+                    // The overview contained the full JSON - use it
+                    plan = {
+                        ...parsed,
+                        days_until_exam: plan.days_until_exam,
+                        total_study_hours: plan.total_study_hours,
+                        subjects: plan.subjects
+                    };
+                } else if (parsed && parsed.overview) {
+                    // Only the overview field was in JSON
+                    plan.overview = parsed.overview;
                 }
             }
+
+            // Handle daily_schedule if it's an object
+            if (plan.daily_schedule && typeof plan.daily_schedule === 'object') {
+                let scheduleText = '';
+                for (const [day, task] of Object.entries(plan.daily_schedule)) {
+                    scheduleText += `<strong>${day}:</strong> ${task}<br>`;
+                }
+                plan.daily_schedule = scheduleText;
+            }
+
             renderStudyPlan(plan);
             resultDiv.style.display = 'block';
             resultDiv.scrollIntoView({ behavior: 'smooth' });
@@ -731,12 +750,8 @@ function renderStudyPlan(plan) {
         </div>
         <p style="color:var(--text-secondary);line-height:1.7;font-size:14px;">${plan.overview || 'Your personalized study plan is ready!'}</p>
         <div style="display:flex;gap:20px;margin-top:12px;flex-wrap:wrap;">
-            <span style="background:white;padding:8px 16px;border-radius:20px;font-size:13px;font-weight:600;color:var(--primary);">
-                📅 ${plan.days_until_exam} days until exam
-            </span>
-            <span style="background:white;padding:8px 16px;border-radius:20px;font-size:13px;font-weight:600;color:var(--success);">
-                ⏰ ${plan.total_study_hours} total study hours
-            </span>
+            <span style="background:white;padding:8px 16px;border-radius:20px;font-size:13px;font-weight:600;color:var(--primary);">📅 ${plan.days_until_exam} days until exam</span>
+            <span style="background:white;padding:8px 16px;border-radius:20px;font-size:13px;font-weight:600;color:var(--success);">⏰ ${plan.total_study_hours} total study hours</span>
         </div>
     `;
 
@@ -747,27 +762,13 @@ function renderStudyPlan(plan) {
             plan.subjects_breakdown.map(s => `
                 <div style="background:var(--surface);border:1.5px solid #dbeafe;border-radius:12px;padding:18px;">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-                        <span style="font-weight:700;color:var(--text);font-size:15px;">${s.subject}</span>
-                        <span style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;
-                            ${s.priority === 'High' ? 'background:#fee2e2;color:#dc2626;' :
-                    s.priority === 'Medium' ? 'background:#fef3c7;color:#d97706;' :
-                        'background:#dbeafe;color:#2563eb;'}">
-                            ${s.priority} Priority
-                        </span>
+                        <span style="font-weight:700;color:var(--text);font-size:15px;">${s.subject || 'Subject'}</span>
+                        <span style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;${s.priority === 'High' ? 'background:#fee2e2;color:#dc2626;' : s.priority === 'Medium' ? 'background:#fef3c7;color:#d97706;' : 'background:#dbeafe;color:#2563eb;'}">${s.priority || 'Medium'} Priority</span>
                     </div>
-                    <p style="font-size:13px;color:var(--text-secondary);margin-bottom:6px;">
-                        ⏱️ <strong>${s.total_hours} hours</strong> recommended
-                    </p>
-                    ${s.topics ? `
-                        <div style="margin-top:8px;">
-                            <span style="font-size:12px;font-weight:600;color:var(--text);">📝 Key Topics:</span>
-                            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">
-                                ${s.topics.map(t => `<span style="background:var(--surface-light);padding:4px 10px;border-radius:15px;font-size:11px;color:var(--text-secondary);">${t}</span>`).join('')}
-                            </div>
-                        </div>` : ''}
+                    <p style="font-size:13px;color:var(--text-secondary);margin-bottom:6px;">⏱️ <strong>${s.total_hours || 0} hours</strong> recommended</p>
+                    ${s.topics ? `<div style="margin-top:8px;"><span style="font-size:12px;font-weight:600;color:var(--text);">📝 Key Topics:</span><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">${s.topics.map(t => `<span style="background:var(--surface-light);padding:4px 10px;border-radius:15px;font-size:11px;color:var(--text-secondary);">${t}</span>`).join('')}</div></div>` : ''}
                     ${s.tips ? `<p style="font-size:12px;color:var(--primary);margin-top:8px;padding:8px;background:rgba(29,78,216,0.05);border-radius:8px;">💡 <strong>Tip:</strong> ${s.tips}</p>` : ''}
-                </div>
-            `).join('');
+                </div>`).join('');
     }
 
     // Weekly Plan
@@ -776,90 +777,30 @@ function renderStudyPlan(plan) {
         weeklyDiv.innerHTML = '<h4 style="margin-bottom:14px;color:var(--text);font-size:15px;">📅 Weekly Schedule</h4>' +
             plan.weekly_plan.map((w, i) => `
                 <div style="padding:12px 0;border-bottom:1px solid #dbeafe;">
-                    <div style="font-weight:700;color:var(--primary);font-size:14px;margin-bottom:6px;">
-                        Week ${w.week || i + 1}: ${w.focus}
-                    </div>
-                    ${w.tasks ? `
-                        <div style="display:grid;gap:6px;margin-top:8px;">
-                            ${w.tasks.map(t => {
-                if (typeof t === 'object') {
-                    return `<div style="display:flex;gap:10px;padding:8px 12px;background:var(--surface-light);border-radius:8px;">
-                                        <span style="font-weight:600;color:var(--primary);font-size:12px;min-width:50px;">Day ${t.day}</span>
-                                        <span style="font-size:12px;color:var(--text-secondary);">${t.task}</span>
-                                    </div>`;
-                }
-                return `<div style="padding:8px 12px;background:var(--surface-light);border-radius:8px;font-size:12px;color:var(--text-secondary);">
-                                    <i class="fas fa-check-circle" style="color:var(--success);margin-right:6px;"></i>${t}
-                                </div>`;
-            }).join('')}
-                        </div>` : ''}
-                </div>
-            `).join('');
+                    <div style="font-weight:700;color:var(--primary);font-size:14px;margin-bottom:6px;">Week ${w.week || i + 1}: ${w.focus || 'Study Focus'}</div>
+                    ${w.tasks ? `<div style="display:grid;gap:6px;margin-top:8px;">${w.tasks.map(t => {
+                if (typeof t === 'object') return `<div style="display:flex;gap:10px;padding:8px 12px;background:var(--surface-light);border-radius:8px;"><span style="font-weight:600;color:var(--primary);font-size:12px;min-width:50px;">Day ${t.day}</span><span style="font-size:12px;color:var(--text-secondary);">${t.task}</span></div>`;
+                return `<div style="padding:8px 12px;background:var(--surface-light);border-radius:8px;font-size:12px;color:var(--text-secondary);"><i class="fas fa-check-circle" style="color:var(--success);margin-right:6px;"></i>${t}</div>`;
+            }).join('')}</div>` : ''}
+                </div>`).join('');
     }
 
     // Daily Schedule
     const dailyDiv = document.getElementById('planDaily');
     if (plan.daily_schedule) {
-        // Clean up the schedule text
-        let schedule = plan.daily_schedule
-            .replace(/^- /gm, '• ')
-            .replace(/\n/g, '<br>');
-
-        dailyDiv.innerHTML = `
-            <h4 style="margin-bottom:12px;color:var(--text);font-size:15px;">📋 Daily Study Schedule</h4>
-            <div style="background:var(--surface-light);border-radius:12px;padding:18px;font-size:14px;color:var(--text-secondary);line-height:2;">
-                ${schedule}
-            </div>
-        `;
+        let schedule = typeof plan.daily_schedule === 'string' ? plan.daily_schedule : JSON.stringify(plan.daily_schedule);
+        schedule = schedule.replace(/\n/g, '<br>').replace(/^- /gm, '• ');
+        dailyDiv.innerHTML = `<h4 style="margin-bottom:12px;color:var(--text);font-size:15px;">📋 Daily Study Schedule</h4><div style="background:var(--surface-light);border-radius:12px;padding:18px;font-size:14px;color:var(--text-secondary);line-height:2;">${schedule}</div>`;
     }
 
     // Tips Section
     const tipsDiv = document.getElementById('planTips');
     let tipsHTML = '';
-
     if (plan.revision_strategy) {
-        tipsHTML += `
-            <div style="background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1.5px solid #bbf7d0;border-radius:12px;padding:18px;">
-                <h4 style="color:#059669;margin-bottom:10px;font-size:14px;">
-                    <i class="fas fa-sync-alt"></i> Revision Strategy
-                </h4>
-                <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
-                    ${plan.revision_strategy.replace(/\n/g, '<br>')}
-                </p>
-            </div>
-        `;
+        tipsHTML += `<div style="background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1.5px solid #bbf7d0;border-radius:12px;padding:18px;"><h4 style="color:#059669;margin-bottom:10px;font-size:14px;"><i class="fas fa-sync-alt"></i> Revision Strategy</h4><p style="font-size:13px;color:var(--text-secondary);line-height:1.7;">${String(plan.revision_strategy).replace(/\n/g, '<br>')}</p></div>`;
     }
-
     if (plan.exam_day_tips) {
-        tipsHTML += `
-            <div style="background:linear-gradient(135deg,#fef3c7,#fde68a);border:1.5px solid #fcd34d;border-radius:12px;padding:18px;">
-                <h4 style="color:#d97706;margin-bottom:10px;font-size:14px;">
-                    <i class="fas fa-star"></i> Exam Day Tips
-                </h4>
-                <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
-                    ${plan.exam_day_tips.replace(/\n/g, '<br>')}
-                </p>
-            </div>
-        `;
+        tipsHTML += `<div style="background:linear-gradient(135deg,#fef3c7,#fde68a);border:1.5px solid #fcd34d;border-radius:12px;padding:18px;"><h4 style="color:#d97706;margin-bottom:10px;font-size:14px;"><i class="fas fa-star"></i> Exam Day Tips</h4><p style="font-size:13px;color:var(--text-secondary);line-height:1.7;">${String(plan.exam_day_tips).replace(/\n/g, '<br>')}</p></div>`;
     }
-
     tipsDiv.innerHTML = tipsHTML;
 }
-
-// Update switchTab to handle study plan
-const origSwitchTab = switchTab;
-switchTab = function (tabName) {
-    if (tabName === currentTab) return;
-    currentTab = tabName;
-
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    const tabMap = { 'chat': 'tabBtnChat', 'flashcards': 'tabBtnFlashcards', 'studyplan': 'tabBtnStudyPlan' };
-    if (tabMap[tabName]) document.getElementById(tabMap[tabName]).classList.add('active');
-
-    document.querySelectorAll('.tab-section').forEach(s => { s.classList.remove('active'); s.style.display = 'none'; });
-    const secMap = { 'chat': 'chatSection', 'flashcards': 'flashcardsSection', 'studyplan': 'studyplanSection' };
-    const sec = document.getElementById(secMap[tabName]);
-    if (sec) { sec.classList.add('active'); sec.style.display = 'flex'; }
-
-    if (tabName === 'chat') userInput.focus();
-};
