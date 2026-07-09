@@ -178,7 +178,7 @@ def clear_session_history_sqlite(session_id):
 # Main DB methods with MongoDB priority, SQLite fallback
 
 def save_message(session_id, role, content, sources=None):
-    if sessions_collection:
+    if sessions_collection is not None:
         try:
             sessions_collection.update_one(
                 {'session_id': session_id},
@@ -194,7 +194,7 @@ def save_message(session_id, role, content, sources=None):
     save_message_sqlite(session_id, role, content)
 
 def get_session_history(session_id, limit=MAX_HISTORY):
-    if sessions_collection:
+    if sessions_collection is not None:
         try:
             doc = sessions_collection.find_one({'session_id': session_id})
             if doc and 'messages' in doc:
@@ -205,7 +205,7 @@ def get_session_history(session_id, limit=MAX_HISTORY):
     return get_session_history_sqlite(session_id, limit)
 
 def trim_session_history(session_id, keep=MAX_HISTORY):
-    if sessions_collection:
+    if sessions_collection is not None:
         try:
             doc = sessions_collection.find_one({'session_id': session_id})
             if doc and 'messages' in doc and len(doc['messages']) > keep:
@@ -219,7 +219,7 @@ def trim_session_history(session_id, keep=MAX_HISTORY):
     trim_session_history_sqlite(session_id, keep)
 
 def clear_session_history(session_id):
-    if sessions_collection:
+    if sessions_collection is not None:
         try:
             sessions_collection.delete_one({'session_id': session_id})
             return
@@ -749,7 +749,7 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login_page():
     if request.method == 'POST':
-        if not users_collection:
+        if users_collection is None:
             return jsonify({'success': False, 'message': 'User system not available'}), 500
         
         data = request.json or {}
@@ -778,7 +778,7 @@ def login_page():
 @app.route('/signup', methods=['GET', 'POST'])
 def signup_page():
     if request.method == 'POST':
-        if not users_collection:
+        if users_collection is None:
             return jsonify({'success': False, 'message': 'User system not available'}), 500
         
         data = request.json or {}
@@ -816,7 +816,7 @@ def logout():
 @app.route('/api/sessions', methods=['GET'])
 @login_required
 def api_get_sessions():
-    if not sessions_collection:
+    if sessions_collection is None:
         return jsonify({'success': True, 'sessions': []})
     
     try:
@@ -842,7 +842,7 @@ def api_create_session():
     title = data.get('title', 'New Chat')
     if not session_id:
         return jsonify({'success': False, 'message': 'Session ID required'}), 400
-    if sessions_collection:
+    if sessions_collection is not None:
         try:
             sessions_collection.update_one(
                 {'session_id': session_id},
@@ -861,14 +861,14 @@ def api_update_session_title():
     title = data.get('title')
     if not session_id or not title:
         return jsonify({'success': False, 'message': 'Session ID and title required'}), 400
-    if sessions_collection:
+    if sessions_collection is not None:
         sessions_collection.update_one({'session_id': session_id}, {'$set': {'title': title}})
     return jsonify({'success': True})
 
 @app.route('/api/sessions/<session_id>', methods=['DELETE'])
 @login_required
 def api_delete_session(session_id):
-    if sessions_collection:
+    if sessions_collection is not None:
         sessions_collection.delete_one({'session_id': session_id})
     return jsonify({'success': True})
 
@@ -1222,7 +1222,7 @@ def check_status():
     if qdrant_client:
         try: doc_count = qdrant_client.get_collection("university_notes").points_count
         except: pass
-    user_count = users_collection.count_documents({}) if users_collection else 0
+    user_count = users_collection.count_documents({}) if users_collection is not None else 0
     return jsonify({
         'status': 'online', 'documents_available': doc_count > 0, 'document_count': doc_count,
         'api_connected': gemini_connected or groq_connected, 'qdrant_connected': qdrant_client is not None,
@@ -1264,7 +1264,7 @@ def get_admin_stats():
     if qdrant_client:
         try: doc_count = qdrant_client.get_collection("university_notes").points_count
         except: pass
-    user_count = users_collection.count_documents({}) if users_collection else 0
+    user_count = users_collection.count_documents({}) if users_collection is not None else 0
     return jsonify({'success': True, 'total_documents': doc_count, 'total_chunks': doc_count, 'total_users': user_count})
 
 if __name__ == '__main__':
@@ -1273,10 +1273,11 @@ if __name__ == '__main__':
     if qdrant_client:
         try: doc_count = qdrant_client.get_collection("university_notes").points_count
         except: pass
+    user_count = users_collection.count_documents({}) if users_collection is not None else 0
     print("\n" + "="*60)
     print("🚀 SERVER STARTED")
     print(f"📚 Documents: {doc_count}")
-    print(f"👥 Users: {users_collection.count_documents({}) if users_collection is not None else 0}")
+    print(f"👥 Users: {user_count}")
     print(f"🧠 Memory: MongoDB + SQLite fallback")
     print(f"📡 Streaming: /chat/stream")
     print(f"🃏 Flashcards: /generate-flashcards")
