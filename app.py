@@ -93,19 +93,34 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 mongo_client = None
 users_collection = None
 sessions_collection = None
+mongo_available = False
 
 try:
     if mongo_uri != 'NOT SET':
         mongo_client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+        # Test connection
+        mongo_client.admin.command('ping')
         db_mongo = mongo_client['chatbot_db']
         users_collection = db_mongo['users']
         sessions_collection = db_mongo['chat_sessions']
         users_collection.create_index('email', unique=True)
+        mongo_available = True
         print("✅ MongoDB connected (Users & Chat Sessions)")
     else:
         print("⚠️ MONGO_URI not set - student accounts disabled")
 except Exception as e:
-    print(f"⚠️ MongoDB connection failed: {e}")
+    print(f"⚠️ MongoDB connection failed: {str(e)[:100]}")
+    print("⚠️ Student accounts disabled - using SQLite fallback for chat")
+
+# Helper function for safe MongoDB count
+def safe_mongo_count(collection):
+    """Safely count documents in a MongoDB collection"""
+    if collection is None:
+        return 0
+    try:
+        return collection.count_documents({})
+    except Exception:
+        return 0
 
 # ========== PERSISTENT CONVERSATION MEMORY (SQLite fallback) ==========
 DB_PATH = os.getenv('CHAT_DB_PATH', 'chat_history.db')
@@ -178,7 +193,7 @@ def clear_session_history_sqlite(session_id):
 # Main DB methods with MongoDB priority, SQLite fallback
 
 def save_message(session_id, role, content, sources=None):
-    if sessions_collection is not None:
+    if mongo_available and sessions_collection is not None:
         try:
             sessions_collection.update_one(
                 {'session_id': session_id},
@@ -194,7 +209,7 @@ def save_message(session_id, role, content, sources=None):
     save_message_sqlite(session_id, role, content)
 
 def get_session_history(session_id, limit=MAX_HISTORY):
-    if sessions_collection is not None:
+    if mongo_available and sessions_collection is not None:
         try:
             doc = sessions_collection.find_one({'session_id': session_id})
             if doc and 'messages' in doc:
@@ -205,7 +220,7 @@ def get_session_history(session_id, limit=MAX_HISTORY):
     return get_session_history_sqlite(session_id, limit)
 
 def trim_session_history(session_id, keep=MAX_HISTORY):
-    if sessions_collection is not None:
+    if mongo_available and sessions_collection is not None:
         try:
             doc = sessions_collection.find_one({'session_id': session_id})
             if doc and 'messages' in doc and len(doc['messages']) > keep:
@@ -219,7 +234,7 @@ def trim_session_history(session_id, keep=MAX_HISTORY):
     trim_session_history_sqlite(session_id, keep)
 
 def clear_session_history(session_id):
-    if sessions_collection is not None:
+    if mongo_available and sessions_collection is not None:
         try:
             sessions_collection.delete_one({'session_id': session_id})
             return
@@ -759,15 +774,18 @@ def login_page():
         if not email or not password:
             return jsonify({'success': False, 'message': 'Email and password required'}), 400
         
-        user = users_collection.find_one({'email': email})
-        if user and check_password_hash(user['password_hash'], password):
-            session.permanent = True
-            session['student_user'] = {
-                'id': str(user['_id']),
-                'email': email,
-                'name': user.get('name', email)
-            }
-            return jsonify({'success': True})
+        try:
+            user = users_collection.find_one({'email': email})
+            if user and check_password_hash(user['password_hash'], password):
+                session.permanent = True
+                session['student_user'] = {
+                    'id': str(user['_id']),
+                    'email': email,
+                    'name': user.get('name', email)
+                }
+                return jsonify({'success': True})
+        except Exception as e:
+            print(f"MongoDB login error: {e}")
         
         return jsonify({'success': False, 'message': 'Invalid email or password'}), 401
     
@@ -790,17 +808,21 @@ def signup_page():
             return jsonify({'success': False, 'message': 'All fields required'}), 400
         if len(password) < 6:
             return jsonify({'success': False, 'message': 'Password must be 6+ characters'}), 400
-        if users_collection.find_one({'email': email}):
-            return jsonify({'success': False, 'message': 'Email already registered'}), 400
         
-        users_collection.insert_one({
-            'name': name, 'email': email,
-            'password_hash': generate_password_hash(password),
-            'created_at': datetime.utcnow()
-        })
-        
-        print(f"✅ New student: {name} ({email})")
-        return jsonify({'success': True, 'message': 'Registration successful! Please login.'})
+        try:
+            if users_collection.find_one({'email': email}):
+                return jsonify({'success': False, 'message': 'Email already registered'}), 400
+            
+            users_collection.insert_one({
+                'name': name, 'email': email,
+                'password_hash': generate_password_hash(password),
+                'created_at': datetime.utcnow()
+            })
+            print(f"✅ New student: {name} ({email})")
+            return jsonify({'success': True, 'message': 'Registration successful! Please login.'})
+        except Exception as e:
+            print(f"MongoDB signup error: {e}")
+            return jsonify({'success': False, 'message': 'Registration failed. Please try again.'}), 500
     
     if 'student_user' in session:
         return redirect(url_for('index'))
@@ -811,12 +833,12 @@ def logout():
     session.pop('student_user', None)
     return redirect(url_for('login_page'))
 
-# ========== CHAT SESSION MANAGEMENT (MongoDB) ==========
+# ========== CHAT SESSION MANAGEMENT ==========
 
 @app.route('/api/sessions', methods=['GET'])
 @login_required
 def api_get_sessions():
-    if sessions_collection is None:
+    if not mongo_available or sessions_collection is None:
         return jsonify({'success': True, 'sessions': []})
     
     try:
@@ -842,7 +864,7 @@ def api_create_session():
     title = data.get('title', 'New Chat')
     if not session_id:
         return jsonify({'success': False, 'message': 'Session ID required'}), 400
-    if sessions_collection is not None:
+    if mongo_available and sessions_collection is not None:
         try:
             sessions_collection.update_one(
                 {'session_id': session_id},
@@ -861,15 +883,21 @@ def api_update_session_title():
     title = data.get('title')
     if not session_id or not title:
         return jsonify({'success': False, 'message': 'Session ID and title required'}), 400
-    if sessions_collection is not None:
-        sessions_collection.update_one({'session_id': session_id}, {'$set': {'title': title}})
+    if mongo_available and sessions_collection is not None:
+        try:
+            sessions_collection.update_one({'session_id': session_id}, {'$set': {'title': title}})
+        except Exception as e:
+            return jsonify({'success': False, 'message': str(e)}), 500
     return jsonify({'success': True})
 
 @app.route('/api/sessions/<session_id>', methods=['DELETE'])
 @login_required
 def api_delete_session(session_id):
-    if sessions_collection is not None:
-        sessions_collection.delete_one({'session_id': session_id})
+    if mongo_available and sessions_collection is not None:
+        try:
+            sessions_collection.delete_one({'session_id': session_id})
+        except Exception as e:
+            return jsonify({'success': False, 'message': str(e)}), 500
     return jsonify({'success': True})
 
 # ========== ADMIN ROUTES ==========
@@ -1222,7 +1250,7 @@ def check_status():
     if qdrant_client:
         try: doc_count = qdrant_client.get_collection("university_notes").points_count
         except: pass
-    user_count = users_collection.count_documents({}) if users_collection is not None else 0
+    user_count = safe_mongo_count(users_collection)
     return jsonify({
         'status': 'online', 'documents_available': doc_count > 0, 'document_count': doc_count,
         'api_connected': gemini_connected or groq_connected, 'qdrant_connected': qdrant_client is not None,
@@ -1264,7 +1292,7 @@ def get_admin_stats():
     if qdrant_client:
         try: doc_count = qdrant_client.get_collection("university_notes").points_count
         except: pass
-    user_count = users_collection.count_documents({}) if users_collection is not None else 0
+    user_count = safe_mongo_count(users_collection)
     return jsonify({'success': True, 'total_documents': doc_count, 'total_chunks': doc_count, 'total_users': user_count})
 
 if __name__ == '__main__':
@@ -1273,12 +1301,12 @@ if __name__ == '__main__':
     if qdrant_client:
         try: doc_count = qdrant_client.get_collection("university_notes").points_count
         except: pass
-    user_count = users_collection.count_documents({}) if users_collection is not None else 0
+    user_count = safe_mongo_count(users_collection)
     print("\n" + "="*60)
     print("🚀 SERVER STARTED")
     print(f"📚 Documents: {doc_count}")
     print(f"👥 Users: {user_count}")
-    print(f"🧠 Memory: MongoDB + SQLite fallback")
+    print(f"🧠 Memory: {'MongoDB' if mongo_available else 'SQLite'} + SQLite fallback")
     print(f"📡 Streaming: /chat/stream")
     print(f"🃏 Flashcards: /generate-flashcards")
     print(f"📝 Summaries: /generate-summary")
