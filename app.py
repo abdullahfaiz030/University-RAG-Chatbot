@@ -98,7 +98,6 @@ mongo_available = False
 try:
     if mongo_uri != 'NOT SET':
         mongo_client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
-        # Test connection
         mongo_client.admin.command('ping')
         db_mongo = mongo_client['chatbot_db']
         users_collection = db_mongo['users']
@@ -112,9 +111,7 @@ except Exception as e:
     print(f"⚠️ MongoDB connection failed: {str(e)[:100]}")
     print("⚠️ Student accounts disabled - using SQLite fallback for chat")
 
-# Helper function for safe MongoDB count
 def safe_mongo_count(collection):
-    """Safely count documents in a MongoDB collection"""
     if collection is None:
         return 0
     try:
@@ -189,8 +186,6 @@ def clear_session_history_sqlite(session_id):
         conn.commit()
     finally:
         conn.close()
-
-# Main DB methods with MongoDB priority, SQLite fallback
 
 def save_message(session_id, role, content, sources=None):
     if mongo_available and sessions_collection is not None:
@@ -271,33 +266,23 @@ class HFEmbeddingModel:
     def encode(self, sentences, **kwargs):
         if self.local_model:
             return self.local_model.encode(sentences, **kwargs)
-            
         if not self.client:
             self.client = InferenceClient(token=self.token)
-            
         try:
             import numpy as np
             if isinstance(sentences, str):
                 res = self.client.feature_extraction(text=sentences, model=self.model_name)
-                if isinstance(res, np.ndarray):
-                    return res
-                return np.array(res)
+                return res if isinstance(res, np.ndarray) else np.array(res)
             else:
                 results = []
                 for s in sentences:
                     res = self.client.feature_extraction(text=s, model=self.model_name)
-                    if isinstance(res, np.ndarray):
-                        results.append(res)
-                    else:
-                        results.append(np.array(res))
+                    results.append(res if isinstance(res, np.ndarray) else np.array(res))
                 return np.stack(results)
         except Exception as e:
             print(f"❌ Error during HF Inference API feature extraction: {e}")
             import numpy as np
-            if isinstance(sentences, str):
-                return np.zeros(384)
-            else:
-                return np.zeros((len(sentences), 384))
+            return np.zeros(384) if isinstance(sentences, str) else np.zeros((len(sentences), 384))
 
 try:
     hf_token = os.getenv('HF_TOKEN')
@@ -677,62 +662,47 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
     if uploaded_filenames:
         sources = list(dict.fromkeys(sources + uploaded_filenames))
 
-    # Build prompts
     if is_greeting:
         system_prompt = "You are a friendly AI. Give a SHORT greeting. 1 sentence only."
-        user_prompt = f"User: {user_message}\n\nShort greeting:"
-        max_tokens = 30
+        user_prompt = f"User: {user_message}\n\nShort greeting:"; max_tokens = 30
     elif is_identity:
         system_prompt = "You are an AI assistant. In 1-2 short sentences, explain you're an AI created to help people learn."
-        user_prompt = f"User: {user_message}\n\nShort response:"
-        max_tokens = 60
+        user_prompt = f"User: {user_message}\n\nShort response:"; max_tokens = 60
     elif is_location:
         system_prompt = "You are an AI. In 1 short sentence, explain you don't have a physical location."
-        user_prompt = f"User: {user_message}\n\nShort response:"
-        max_tokens = 40
+        user_prompt = f"User: {user_message}\n\nShort response:"; max_tokens = 40
     elif is_user_personal:
         system_prompt = "In 1-2 short sentences, honestly say you don't know their name but you're happy to help."
-        user_prompt = f"User: {user_message}\n\nShort response:"
-        max_tokens = 40
+        user_prompt = f"User: {user_message}\n\nShort response:"; max_tokens = 40
     elif is_thanks:
         system_prompt = "Respond to thanks in 1 very short, warm sentence."
-        user_prompt = f"User: {user_message}\n\nShort response:"
-        max_tokens = 20
+        user_prompt = f"User: {user_message}\n\nShort response:"; max_tokens = 20
     elif sentiment == 'frustrated':
         system_prompt = "The user seems frustrated. Be extra patient and helpful. 2-3 sentences."
-        user_prompt = f"User seems confused: {user_message}\n\nPatient, helpful response:"
-        max_tokens = 150
+        user_prompt = f"User seems confused: {user_message}\n\nPatient, helpful response:"; max_tokens = 150
     elif web_results:
         web_context = "".join([f"📰 {r.get('title', '')}: {r.get('snippet', '')}\n\n" for r in web_results[:3]])
         system_prompt = "You are a helpful AI with web access. Answer in 1-3 SHORT sentences. Be direct."
-        user_prompt = f"Web results:\n{web_context}\n\nQuestion: {user_message}\n\nShort answer:"
-        max_tokens = 120
+        user_prompt = f"Web results:\n{web_context}\n\nQuestion: {user_message}\n\nShort answer:"; max_tokens = 120
     elif is_follow_up and doc_context:
         system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP about: '{previous_topic}'. Expand on it. 3-5 sentences. NEVER mention notes or documents."
-        user_prompt = f"Reference about '{previous_topic}':\n{doc_context[:500]}\n\nUser: {user_message}\n\nExpand on '{previous_topic}':"
-        max_tokens = 200
+        user_prompt = f"Reference about '{previous_topic}':\n{doc_context[:500]}\n\nUser: {user_message}\n\nExpand on '{previous_topic}':"; max_tokens = 200
     elif is_follow_up and not doc_context:
         system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP about: '{previous_topic}'. Expand on it. 3-5 sentences."
-        user_prompt = f"Previous topic: '{previous_topic}'. User: {user_message}\n\nExpand on '{previous_topic}':"
-        max_tokens = 200
+        user_prompt = f"Previous topic: '{previous_topic}'. User: {user_message}\n\nExpand on '{previous_topic}':"; max_tokens = 200
     elif doc_context:
         system_prompt = "You are a helpful AI tutor. Answer in 1-3 SHORT sentences. NEVER mention notes or documents."
-        user_prompt = f"Reference (read silently):\n{doc_context[:500]}\n\nQuestion: {user_message}\n\nShort answer:"
-        max_tokens = 100
+        user_prompt = f"Reference (read silently):\n{doc_context[:500]}\n\nQuestion: {user_message}\n\nShort answer:"; max_tokens = 100
     else:
         system_prompt = "You are a smart AI assistant. Answer in 1-3 SHORT sentences."
-        user_prompt = f"Question: {user_message}\n\nShort answer:"
-        max_tokens = 100
+        user_prompt = f"Question: {user_message}\n\nShort answer:"; max_tokens = 100
 
     if length_control == 'short':
-        system_prompt += " IMPORTANT: Keep response extremely short and concise (1 sentence max)."
-        max_tokens = 80
+        system_prompt += " IMPORTANT: Keep response extremely short and concise (1 sentence max)."; max_tokens = 80
     elif length_control == 'detailed':
-        system_prompt += " Provide a detailed explanation with formatting, bullet points, or code blocks where relevant."
-        max_tokens = 1000
+        system_prompt += " Provide a detailed explanation with formatting, bullet points, or code blocks where relevant."; max_tokens = 1000
     else:
-        system_prompt += " Keep response to a medium length (2-4 sentences max)."
-        max_tokens = 250
+        system_prompt += " Keep response to a medium length (2-4 sentences max)."; max_tokens = 250
 
     return {
         'system_prompt': system_prompt, 'user_prompt': user_prompt, 'max_tokens': max_tokens,
@@ -766,29 +736,20 @@ def login_page():
     if request.method == 'POST':
         if users_collection is None:
             return jsonify({'success': False, 'message': 'User system not available'}), 500
-        
         data = request.json or {}
         email = data.get('email', '').strip().lower()
         password = data.get('password', '')
-        
         if not email or not password:
             return jsonify({'success': False, 'message': 'Email and password required'}), 400
-        
         try:
             user = users_collection.find_one({'email': email})
             if user and check_password_hash(user['password_hash'], password):
                 session.permanent = True
-                session['student_user'] = {
-                    'id': str(user['_id']),
-                    'email': email,
-                    'name': user.get('name', email)
-                }
+                session['student_user'] = {'id': str(user['_id']), 'email': email, 'name': user.get('name', email)}
                 return jsonify({'success': True})
         except Exception as e:
             print(f"MongoDB login error: {e}")
-        
         return jsonify({'success': False, 'message': 'Invalid email or password'}), 401
-    
     if 'student_user' in session:
         return redirect(url_for('index'))
     return render_template('login.html')
@@ -798,32 +759,23 @@ def signup_page():
     if request.method == 'POST':
         if users_collection is None:
             return jsonify({'success': False, 'message': 'User system not available'}), 500
-        
         data = request.json or {}
         name = data.get('name', '').strip()
         email = data.get('email', '').strip().lower()
         password = data.get('password', '')
-        
         if not name or not email or not password:
             return jsonify({'success': False, 'message': 'All fields required'}), 400
         if len(password) < 6:
             return jsonify({'success': False, 'message': 'Password must be 6+ characters'}), 400
-        
         try:
             if users_collection.find_one({'email': email}):
                 return jsonify({'success': False, 'message': 'Email already registered'}), 400
-            
-            users_collection.insert_one({
-                'name': name, 'email': email,
-                'password_hash': generate_password_hash(password),
-                'created_at': datetime.utcnow()
-            })
+            users_collection.insert_one({'name': name, 'email': email, 'password_hash': generate_password_hash(password), 'created_at': datetime.utcnow()})
             print(f"✅ New student: {name} ({email})")
             return jsonify({'success': True, 'message': 'Registration successful! Please login.'})
         except Exception as e:
             print(f"MongoDB signup error: {e}")
-            return jsonify({'success': False, 'message': 'Registration failed. Please try again.'}), 500
-    
+            return jsonify({'success': False, 'message': 'Registration failed.'}), 500
     if 'student_user' in session:
         return redirect(url_for('index'))
     return render_template('signup.html')
@@ -840,18 +792,12 @@ def logout():
 def api_get_sessions():
     if not mongo_available or sessions_collection is None:
         return jsonify({'success': True, 'sessions': []})
-    
     try:
         docs = sessions_collection.find({'user_email': session['student_user']['email']})
         sessions_data = []
         for doc in docs:
             messages = doc.get('messages', [])
-            sessions_data.append({
-                'id': doc['session_id'],
-                'title': doc.get('title', 'New Chat'),
-                'messages': [{'role': m['role'], 'content': m['content']} for m in messages],
-                'timestamp': str(doc.get('_id').generation_time) if doc.get('_id') else ''
-            })
+            sessions_data.append({'id': doc['session_id'], 'title': doc.get('title', 'New Chat'), 'messages': [{'role': m['role'], 'content': m['content']} for m in messages], 'timestamp': str(doc.get('_id').generation_time) if doc.get('_id') else ''})
         return jsonify({'success': True, 'sessions': sessions_data})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -866,13 +812,8 @@ def api_create_session():
         return jsonify({'success': False, 'message': 'Session ID required'}), 400
     if mongo_available and sessions_collection is not None:
         try:
-            sessions_collection.update_one(
-                {'session_id': session_id},
-                {'$set': {'user_email': session['student_user']['email'], 'title': title}},
-                upsert=True
-            )
-        except Exception as e:
-            return jsonify({'success': False, 'message': str(e)}), 500
+            sessions_collection.update_one({'session_id': session_id}, {'$set': {'user_email': session['student_user']['email'], 'title': title}}, upsert=True)
+        except: pass
     return jsonify({'success': True})
 
 @app.route('/api/sessions/update-title', methods=['POST'])
@@ -886,8 +827,7 @@ def api_update_session_title():
     if mongo_available and sessions_collection is not None:
         try:
             sessions_collection.update_one({'session_id': session_id}, {'$set': {'title': title}})
-        except Exception as e:
-            return jsonify({'success': False, 'message': str(e)}), 500
+        except: pass
     return jsonify({'success': True})
 
 @app.route('/api/sessions/<session_id>', methods=['DELETE'])
@@ -896,8 +836,7 @@ def api_delete_session(session_id):
     if mongo_available and sessions_collection is not None:
         try:
             sessions_collection.delete_one({'session_id': session_id})
-        except Exception as e:
-            return jsonify({'success': False, 'message': str(e)}), 500
+        except: pass
     return jsonify({'success': True})
 
 # ========== ADMIN ROUTES ==========
@@ -956,10 +895,7 @@ def upload_file():
                 points = []
                 for i, chunk in enumerate(chunks):
                     embedding = embedding_model.encode(chunk).tolist()
-                    points.append(PointStruct(id=str(uuid.uuid4()), vector=embedding, payload={
-                        "filename": filename, "text": chunk, "chunk_index": i,
-                        "category": category, "file_type": file_type, "upload_date": str(pd.Timestamp.now())
-                    }))
+                    points.append(PointStruct(id=str(uuid.uuid4()), vector=embedding, payload={"filename": filename, "text": chunk, "chunk_index": i, "category": category, "file_type": file_type, "upload_date": str(pd.Timestamp.now())}))
                 if qdrant_client: qdrant_client.upsert(collection_name="university_notes", points=points)
                 uploaded.append({'name': filename, 'type': file_type.upper(), 'chunks': len(chunks)})
             else: failed.append({'name': filename, 'reason': 'No text extracted'})
@@ -971,8 +907,7 @@ def upload_file():
 @login_required
 def chat():
     try:
-        uploaded_context = ""
-        uploaded_filenames = []
+        uploaded_context, uploaded_filenames = "", []
         if request.content_type and 'multipart/form-data' in request.content_type:
             user_message = request.form.get('message', '').strip()
             session_id = request.form.get('session_id', 'default')
@@ -984,7 +919,6 @@ def chat():
             session_id = data.get('session_id', 'default')
             length_control = data.get('length_control', 'medium')
             files = []
-
         for file in files:
             if not file.filename: continue
             try:
@@ -1003,16 +937,12 @@ def chat():
                     uploaded_filenames.append(filename)
                 if os.path.exists(file_path): os.remove(file_path)
             except Exception as e: print(f"Error processing temp upload: {e}")
-
         if not user_message and uploaded_filenames:
             user_message = f"Describe the attached file: {', '.join(uploaded_filenames)}"
-
         if not user_message: return jsonify({'response': 'Please type a message.'}), 400
         if not gemini_api_key and not groq_api_key: return jsonify({'response': 'AI service not available.'}), 500
-
         ctx = build_chat_context(user_message, session_id, length_control, uploaded_context, uploaded_filenames)
         response_text = None
-
         if gemini_api_key:
             contents = build_gemini_contents(ctx.get('history_messages', []), ctx['user_prompt'])
             for model in GEMINI_MODELS:
@@ -1020,7 +950,6 @@ def chat():
                     response_text = gemini_chat_completion(system_prompt=ctx['system_prompt'], contents=contents, model=model, max_tokens=ctx['max_tokens'], temperature=0.7)
                     if response_text: break
                 except: continue
-
         if not response_text and groq_api_key:
             messages = [{"role": "system", "content": ctx['system_prompt']}]
             if ctx.get('history_messages'): messages.extend(ctx['history_messages'])
@@ -1030,7 +959,6 @@ def chat():
                     response_text = groq_chat_completion(messages=messages, model=model, max_tokens=ctx['max_tokens'], temperature=0.7)
                     break
                 except: continue
-
         if response_text:
             response_text = postprocess_response(response_text, ctx)
             save_message(session_id, 'user', user_message)
@@ -1059,7 +987,6 @@ def chat_stream():
         session_id = data.get('session_id', 'default')
         length_control = data.get('length_control', 'medium')
         files = []
-
     for file in files:
         if not file.filename: continue
         try:
@@ -1078,15 +1005,11 @@ def chat_stream():
                 uploaded_filenames.append(filename)
             if os.path.exists(file_path): os.remove(file_path)
         except Exception as e: print(f"Error processing temp upload: {e}")
-
     if not user_message and uploaded_filenames:
         user_message = f"Describe the attached file: {', '.join(uploaded_filenames)}"
-
     if not user_message: return jsonify({'error': 'Please type a message.'}), 400
     if not gemini_api_key and not groq_api_key: return jsonify({'error': 'AI service not available.'}), 500
-
     ctx = build_chat_context(user_message, session_id, length_control, uploaded_context, uploaded_filenames)
-
     def event_stream():
         full_response = ""
         streamed_ok = False
@@ -1097,10 +1020,8 @@ def chat_stream():
                     for delta in gemini_chat_completion_stream(system_prompt=ctx['system_prompt'], contents=contents, model=model, max_tokens=ctx['max_tokens'], temperature=0.7):
                         full_response += delta
                         yield f"data: {json.dumps({'delta': delta})}\n\n"
-                    streamed_ok = True
-                    break
+                    streamed_ok = True; break
                 except: full_response = ""
-
         if not streamed_ok and groq_api_key:
             messages = [{"role": "system", "content": ctx['system_prompt']}]
             if ctx.get('history_messages'): messages.extend(ctx['history_messages'])
@@ -1110,21 +1031,17 @@ def chat_stream():
                     for delta in groq_chat_completion_stream(messages=messages, model=model, max_tokens=ctx['max_tokens'], temperature=0.7):
                         full_response += delta
                         yield f"data: {json.dumps({'delta': delta})}\n\n"
-                    streamed_ok = True
-                    break
+                    streamed_ok = True; break
                 except: full_response = ""
-
         if not streamed_ok:
             yield f"data: {json.dumps({'error': 'AI service is having trouble.'})}\n\n"
             return
-
         clean_response = postprocess_response(full_response, ctx)
         save_message(session_id, 'user', user_message)
         save_message(session_id, 'assistant', clean_response)
         trim_session_history(session_id)
         suggestions = generate_suggestions(user_message, clean_response)
         yield f"data: {json.dumps({'done': True, 'mode': ctx['mode'], 'sentiment': ctx['sentiment'], 'suggestions': suggestions, 'sources': ctx.get('sources', [])})}\n\n"
-
     return Response(event_stream(), mimetype='text/event-stream', headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no', 'Connection': 'keep-alive'})
 
 # ========== SPECIAL FEATURES ==========
@@ -1154,13 +1071,13 @@ def generate_flashcards():
         if gemini_api_key:
             for model in GEMINI_MODELS:
                 try:
-                    response_text = gemini_chat_completion(system_prompt=system_prompt, contents=[{"role": "user", "parts": [{"text": user_prompt}]}], model=model, max_tokens=1000, temperature=0.7)
+                    response_text = gemini_chat_completion(system_prompt=system_prompt, contents=[{"role":"user","parts":[{"text":user_prompt}]}], model=model, max_tokens=1000, temperature=0.7)
                     if response_text: break
                 except: continue
         if not response_text and groq_api_key:
             for model in GROQ_MODELS:
                 try:
-                    response_text = groq_chat_completion(messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}], model=model, max_tokens=1000, temperature=0.7)
+                    response_text = groq_chat_completion(messages=[{"role":"system","content":system_prompt},{"role":"user","content":user_prompt}], model=model, max_tokens=1000, temperature=0.7)
                     break
                 except: continue
         if not response_text: return jsonify({'error': 'Failed to generate flashcards.'}), 500
@@ -1175,7 +1092,7 @@ def generate_flashcards():
                 match = re.search(r'\[\s*\{.*\}\s*\]', raw, re.DOTALL)
                 if match: flashcards = json.loads(match.group(0)); return jsonify({'success': True, 'flashcards': flashcards})
             except: pass
-        return jsonify({'success': True, 'flashcards': [{"question": "What is a project?", "answer": "A temporary endeavor to create a unique product or service."}], 'note': 'Using fallback cards'})
+        return jsonify({'success': True, 'flashcards': [{"question":"What is a project?","answer":"A temporary endeavor to create a unique product or service."}], 'note':'Using fallback cards'})
     except Exception as e:
         print(f"Flashcards error: {e}")
         return jsonify({'error': 'An internal error occurred.'}), 500
@@ -1202,19 +1119,110 @@ def generate_summary():
         if gemini_api_key:
             for model in GEMINI_MODELS:
                 try:
-                    response_text = gemini_chat_completion(system_prompt=system_prompt, contents=[{"role": "user", "parts": [{"text": user_prompt}]}], model=model, max_tokens=1500, temperature=0.5)
+                    response_text = gemini_chat_completion(system_prompt=system_prompt, contents=[{"role":"user","parts":[{"text":user_prompt}]}], model=model, max_tokens=1500, temperature=0.5)
                     if response_text: break
                 except: continue
         if not response_text and groq_api_key:
             for model in GROQ_MODELS:
                 try:
-                    response_text = groq_chat_completion(messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}], model=model, max_tokens=1500, temperature=0.5)
+                    response_text = groq_chat_completion(messages=[{"role":"system","content":system_prompt},{"role":"user","content":user_prompt}], model=model, max_tokens=1500, temperature=0.5)
                     break
                 except: continue
         if response_text: return jsonify({'success': True, 'summary': response_text.strip()})
         return jsonify({'error': 'Failed to generate summary.'}), 500
     except Exception as e:
         print(f"Summary error: {e}")
+        return jsonify({'error': 'An internal error occurred.'}), 500
+
+# ========== SMART STUDY PLAN GENERATOR ==========
+
+@app.route('/generate-study-plan', methods=['POST'])
+@login_required
+def generate_study_plan():
+    try:
+        data = request.json or {}
+        exam_date = data.get('exam_date', '').strip()
+        subjects_str = data.get('subjects', '').strip()
+        study_hours_per_day = int(data.get('hours_per_day', 4))
+        
+        if not exam_date: return jsonify({'error': 'Please provide your exam date.'}), 400
+        if not subjects_str: return jsonify({'error': 'Please list your subjects.'}), 400
+        
+        subjects = [s.strip() for s in subjects_str.split(',') if s.strip()]
+        if not subjects: return jsonify({'error': 'Please enter at least one subject.'}), 400
+        
+        try:
+            exam_datetime = datetime.strptime(exam_date, '%Y-%m-%d')
+            today = datetime.utcnow()
+            days_until_exam = (exam_datetime - today).days
+            if days_until_exam <= 0: return jsonify({'error': 'Exam date must be in the future!'}), 400
+            if days_until_exam > 365: return jsonify({'error': 'Exam date is too far away.'}), 400
+        except ValueError:
+            return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+        
+        total_study_hours = days_until_exam * study_hours_per_day
+        subject_content = {}
+        total_content_volume = 0
+        
+        if qdrant_client and embedding_model:
+            for subject in subjects:
+                try:
+                    query_embedding = embedding_model.encode(subject).tolist()
+                    results = qdrant_client.search(collection_name="university_notes", query_vector=query_embedding, limit=5)
+                    if results:
+                        texts = [h.payload.get('text', '') for h in results]
+                        combined = "\n\n".join(texts)
+                        word_count = len(combined.split())
+                        subject_content[subject] = {'text': combined[:2000], 'word_count': word_count, 'chunks_found': len(results)}
+                        total_content_volume += word_count
+                except: pass
+        
+        subjects_list = "\n".join([f"- {s}" for s in subjects])
+        content_summary = ""
+        for subj, info in subject_content.items():
+            content_summary += f"\n📚 {subj}: {info['word_count']} words ({info['chunks_found']} chunks)"
+        if not content_summary:
+            content_summary = "\n⚠️ No lecture notes found. Plan based on general recommendations."
+        
+        system_prompt = """You are an expert academic planner. Create a detailed, personalized study plan.
+FORMAT YOUR RESPONSE AS JSON:
+{"overview":"Brief motivational overview","daily_schedule":"Suggested daily schedule","subjects_breakdown":[{"subject":"Name","priority":"High/Medium/Low","total_hours":20,"topics":["Topic1"],"tips":"Study tips"}],"weekly_plan":[{"week":1,"focus":"Main focus","tasks":["Task1"]}],"revision_strategy":"How to revise","exam_day_tips":"Tips for exam day"}"""
+        
+        user_prompt = f"""Create a personalized study plan:
+📅 Exam Date: {exam_date} ({days_until_exam} days away)
+⏰ Study Hours Per Day: {study_hours_per_day} (Total: {total_study_hours}h)
+📚 Subjects: {subjects_list}
+📄 Notes Found: {content_summary}
+Total Content: {total_content_volume} words"""
+        
+        response_text = None
+        if gemini_api_key:
+            for model in GEMINI_MODELS:
+                try:
+                    response_text = gemini_chat_completion(system_prompt=system_prompt, contents=[{"role":"user","parts":[{"text":user_prompt}]}], model=model, max_tokens=2000, temperature=0.7)
+                    if response_text: break
+                except: continue
+        if not response_text and groq_api_key:
+            for model in GROQ_MODELS:
+                try:
+                    response_text = groq_chat_completion(messages=[{"role":"system","content":system_prompt},{"role":"user","content":user_prompt}], model=model, max_tokens=2000, temperature=0.7)
+                    break
+                except: continue
+        
+        if response_text:
+            raw = response_text.strip()
+            if raw.startswith("```"): raw = re.sub(r'^```(?:json)?\n', '', raw); raw = re.sub(r'\n```$', '', raw)
+            try:
+                study_plan = json.loads(raw)
+                study_plan['days_until_exam'] = days_until_exam
+                study_plan['total_study_hours'] = total_study_hours
+                study_plan['subjects'] = subjects
+                return jsonify({'success': True, 'study_plan': study_plan})
+            except:
+                return jsonify({'success': True, 'study_plan': {'overview': response_text, 'days_until_exam': days_until_exam, 'total_study_hours': total_study_hours, 'subjects': subjects, 'raw_response': True}})
+        return jsonify({'error': 'Failed to generate study plan.'}), 500
+    except Exception as e:
+        print(f"Study plan error: {e}")
         return jsonify({'error': 'An internal error occurred.'}), 500
 
 @app.route('/clear-history', methods=['POST'])
@@ -1255,7 +1263,7 @@ def check_status():
         'status': 'online', 'documents_available': doc_count > 0, 'document_count': doc_count,
         'api_connected': gemini_connected or groq_connected, 'qdrant_connected': qdrant_client is not None,
         'user_system': users_collection is not None, 'total_users': user_count,
-        'features': ['persistent_memory', 'streaming', 'follow_up', 'flashcards', 'summaries', 'sentiment', 'suggestions', 'export']
+        'features': ['persistent_memory', 'streaming', 'follow_up', 'flashcards', 'summaries', 'sentiment', 'suggestions', 'export', 'study_plan']
     })
 
 @app.route('/admin/documents', methods=['GET'])
@@ -1310,6 +1318,7 @@ if __name__ == '__main__':
     print(f"📡 Streaming: /chat/stream")
     print(f"🃏 Flashcards: /generate-flashcards")
     print(f"📝 Summaries: /generate-summary")
+    print(f"📅 Study Plan: /generate-study-plan")
     print(f"🔍 Web Search: DuckDuckGo + Wikipedia + AnySearch")
     print(f"🌐 http://0.0.0.0:{port}/")
     print("="*60 + "\n")
