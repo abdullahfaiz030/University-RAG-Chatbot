@@ -1276,7 +1276,7 @@ if __name__ == '__main__':
     print("\n" + "="*60)
     print("🚀 SERVER STARTED")
     print(f"📚 Documents: {doc_count}")
-    print(f"👥 Users: {users_collection.count_documents({}) if users_collection else 0}")
+    print(f"👥 Users: {users_collection.count_documents({}) if users_collection is not None else 0}")
     print(f"🧠 Memory: MongoDB + SQLite fallback")
     print(f"📡 Streaming: /chat/stream")
     print(f"🃏 Flashcards: /generate-flashcards")
