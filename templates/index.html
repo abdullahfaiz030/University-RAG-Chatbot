@@ -24,159 +24,182 @@
             <div class="sessions-list" id="sessionsList">
                 <!-- Loaded dynamically from JS -->
             </div>
-            <div class="sidebar-footer">
+            <div class="sidebar-footer" style="display: flex; flex-direction: column; gap: 8px; padding: 16px 20px;">
                 <button class="clear-history-btn" onclick="clearAllSessions()" title="Clear All History">
                     <i class="fas fa-trash-alt"></i> Clear History
                 </button>
-            </div>
-        </div>
-
-        <div class="chat-container">
-            <!-- ========== HEADER ========== -->
-            <div class="chat-header">
-                <button class="sidebar-toggle-btn" id="sidebarToggle" onclick="toggleSidebar()" title="Toggle Sidebar">
-                    <i class="fas fa-bars"></i>
-                </button>
-                <div class="bot-info">
-                    <div class="bot-avatar">
-                        <img src="{{ url_for('static', filename='university_logo.png') }}" alt="University Logo">
-                    </div>
-                    <div class="bot-details">
-                        <h2>AI Learning Assistant</h2>
-                    </div>
-                </div>
-                <div class="header-actions">
-                    <!-- Length Control -->
-                    <select id="lengthSelect" class="length-select" title="Response Length">
-                        <option value="medium">📏 Medium</option>
-                        <option value="short">⚡ Short</option>
-                        <option value="detailed">📚 Detailed</option>
-                    </select>
-
-                    <!-- Export Chat -->
-                    <button class="export-btn-header" onclick="exportCurrentChat()" title="Export Chat">
-                        <i class="fas fa-download"></i>
+                <!-- ========== HEADER ========== -->
+                <div class="chat-header">
+                    <button class="sidebar-toggle-btn" id="sidebarToggle" onclick="toggleSidebar()"
+                        title="Toggle Sidebar">
+                        <i class="fas fa-bars"></i>
                     </button>
-
-                    <!-- Voice Output Toggle -->
-                    <button class="voice-output-toggle active" id="voiceOutputToggle" onclick="toggleVoiceOutput()"
-                        title="Toggle Voice Output">
-                        <i class="fas fa-volume-up"></i>
-                    </button>
-
-                    <!-- New Chat -->
-                    <button class="new-chat-btn" onclick="createNewSession()" title="New Conversation">
-                        <i class="fas fa-plus"></i>
-                    </button>
-                </div>
-            </div>
-
-            <!-- ========== TABS NAVIGATION ========== -->
-            <div class="chat-tabs">
-                <button class="tab-btn active" id="tabBtnChat" onclick="switchTab('chat')">
-                    <i class="fas fa-comment-dots"></i> Chat Assistant
-                </button>
-                <button class="tab-btn" id="tabBtnFlashcards" onclick="switchTab('flashcards')">
-                    <i class="fas fa-clone"></i> Study Flashcards
-                </button>
-            </div>
-
-            <!-- ========== CHAT SECTION ========== -->
-            <div class="tab-section active" id="chatSection">
-                <!-- ========== MESSAGES AREA ========== -->
-                <div class="chat-messages" id="chatMessages">
-                    <div class="welcome-message">
-                        <div class="welcome-icon">
-                            <i class="fas fa-graduation-cap"></i>
+                    <div class="bot-info">
+                        <div class="bot-avatar">
+                            <img src="{{ url_for('static', filename='university_logo.png') }}" alt="University Logo">
                         </div>
-                        <h3>Welcome to Your AI Study Assistant! 👋</h3>
-                        <p>I'm here to help you understand your course materials. Ask me anything about your lecture
-                            notes, and I'll give you clear, simple answers.</p>
-                        <div class="suggestion-chips">
-                            <button onclick="sendSuggestion('What is a project?')" class="chip">
-                                <i class="fas fa-bullseye"></i> What is a project?
-                            </button>
-                            <button onclick="sendSuggestion('Explain the factors affecting software development')"
-                                class="chip">
-                                <i class="fas fa-code"></i> Software development
-                            </button>
-                            <button onclick="sendSuggestion('What are the key topics covered in the lectures?')"
-                                class="chip">
-                                <i class="fas fa-book-open"></i> Key topics
-                            </button>
-                            <button onclick="sendSuggestion('Help me understand project stakeholders')" class="chip">
-                                <i class="fas fa-users"></i> Project stakeholders
-                            </button>
+                        <div class="bot-details">
+                            <h2>AI Learning Assistant</h2>
                         </div>
                     </div>
-                </div>
+                    <div class="header-actions">
+                        <!-- Length Control -->
+                        <select id="lengthSelect" class="length-select" title="Response Length">
+                            <option value="medium">📏 Medium</option>
+                            <option value="short">⚡ Short</option>
+                            <option value="detailed">📚 Detailed</option>
+                        </select>
 
-                <!-- ========== INPUT AREA ========== -->
-                <div class="chat-input-area">
-                    <div class="input-wrapper">
-                        <textarea id="userInput" placeholder="Ask me anything about your course materials..." rows="1"
-                            onkeydown="handleKeyDown(event)"></textarea>
-                        <button class="mic-btn" id="micBtn" onclick="toggleVoiceInput()" title="Voice Input">
-                            <i class="fas fa-microphone"></i>
+                        <!-- Export Chat -->
+                        <button class="export-btn-header" onclick="exportCurrentChat()" title="Export Chat">
+                            <i class="fas fa-download"></i>
                         </button>
-                        <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Send message">
-                            <i class="fas fa-paper-plane"></i>
+
+                        <!-- Voice Output Toggle -->
+                        <button class="voice-output-toggle active" id="voiceOutputToggle" onclick="toggleVoiceOutput()"
+                            title="Toggle Voice Output">
+                            <i class="fas fa-volume-up"></i>
+                        </button>
+
+                        <!-- LOGOUT BUTTON -->
+                        <a href="/logout" class="logout-header-btn" title="Logout"
+                            style="display: flex; align-items: center; justify-content: center; width: 38px; height: 38px; border: 1px solid var(--border); background: var(--surface-light); color: var(--text-secondary); border-radius: 12px; cursor: pointer; transition: all 0.2s ease; text-decoration: none;"
+                            onmouseover="this.style.borderColor='#ef4444'; this.style.color='#ef4444'; this.style.background='rgba(239,68,68,0.1)'"
+                            onmouseout="this.style.borderColor='var(--border)'; this.style.color='var(--text-secondary)'; this.style.background='var(--surface-light)'">
+                            <i class="fas fa-sign-out-alt"></i>
+                        </a>
+
+                        <!-- New Chat -->
+                        <button class="new-chat-btn" onclick="createNewSession()" title="New Conversation">
+                            <i class="fas fa-plus"></i>
                         </button>
                     </div>
                 </div>
+
+                <!-- Export Chat -->
+                <button class="export-btn-header" onclick="exportCurrentChat()" title="Export Chat">
+                    <i class="fas fa-download"></i>
+                </button>
+
+                <!-- Voice Output Toggle -->
+                <button class="voice-output-toggle active" id="voiceOutputToggle" onclick="toggleVoiceOutput()"
+                    title="Toggle Voice Output">
+                    <i class="fas fa-volume-up"></i>
+                </button>
+
+                <!-- New Chat -->
+                <button class="new-chat-btn" onclick="createNewSession()" title="New Conversation">
+                    <i class="fas fa-plus"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- ========== TABS NAVIGATION ========== -->
+        <div class="chat-tabs">
+            <button class="tab-btn active" id="tabBtnChat" onclick="switchTab('chat')">
+                <i class="fas fa-comment-dots"></i> Chat Assistant
+            </button>
+            <button class="tab-btn" id="tabBtnFlashcards" onclick="switchTab('flashcards')">
+                <i class="fas fa-clone"></i> Study Flashcards
+            </button>
+        </div>
+
+        <!-- ========== CHAT SECTION ========== -->
+        <div class="tab-section active" id="chatSection">
+            <!-- ========== MESSAGES AREA ========== -->
+            <div class="chat-messages" id="chatMessages">
+                <div class="welcome-message">
+                    <div class="welcome-icon">
+                        <i class="fas fa-graduation-cap"></i>
+                    </div>
+                    <h3>Welcome to Your AI Study Assistant! 👋</h3>
+                    <p>I'm here to help you understand your course materials. Ask me anything about your lecture
+                        notes, and I'll give you clear, simple answers.</p>
+                    <div class="suggestion-chips">
+                        <button onclick="sendSuggestion('What is a project?')" class="chip">
+                            <i class="fas fa-bullseye"></i> What is a project?
+                        </button>
+                        <button onclick="sendSuggestion('Explain the factors affecting software development')"
+                            class="chip">
+                            <i class="fas fa-code"></i> Software development
+                        </button>
+                        <button onclick="sendSuggestion('What are the key topics covered in the lectures?')"
+                            class="chip">
+                            <i class="fas fa-book-open"></i> Key topics
+                        </button>
+                        <button onclick="sendSuggestion('Help me understand project stakeholders')" class="chip">
+                            <i class="fas fa-users"></i> Project stakeholders
+                        </button>
+                    </div>
+                </div>
             </div>
 
-            <!-- ========== FLASHCARDS SECTION ========== -->
-            <div class="tab-section" id="flashcardsSection" style="display: none;">
-                <!-- Setup & Generation Bar -->
-                <div class="flashcards-bar">
-                    <input type="text" id="flashcardTopic" placeholder="Topic for flash cards...">
-                    <button class="generate-cards-btn" onclick="generateFlashcards()">
-                        <i class="fas fa-bolt"></i> Generate Deck
+            <!-- ========== INPUT AREA ========== -->
+            <div class="chat-input-area">
+                <div class="input-wrapper">
+                    <textarea id="userInput" placeholder="Ask me anything about your course materials..." rows="1"
+                        onkeydown="handleKeyDown(event)"></textarea>
+                    <button class="mic-btn" id="micBtn" onclick="toggleVoiceInput()" title="Voice Input">
+                        <i class="fas fa-microphone"></i>
+                    </button>
+                    <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Send message">
+                        <i class="fas fa-paper-plane"></i>
                     </button>
                 </div>
+            </div>
+        </div>
 
-                <!-- Flashcard Display Viewport -->
-                <div class="flashcard-viewport">
-                    <div class="flashcard-card-container">
-                        <div class="flashcard-card" id="flashcardCard" onclick="flipCard()">
-                            <div class="card-face card-front">
-                                <div class="card-tag">QUESTION</div>
-                                <div class="card-text" id="cardQuestion">Click 'Generate Deck' to begin study session!
-                                </div>
-                                <div class="card-hint"><i class="fas fa-sync-alt"></i> Click card or press Space to flip
-                                </div>
+        <!-- ========== FLASHCARDS SECTION ========== -->
+        <div class="tab-section" id="flashcardsSection" style="display: none;">
+            <!-- Setup & Generation Bar -->
+            <div class="flashcards-bar">
+                <input type="text" id="flashcardTopic" placeholder="Topic for flash cards...">
+                <button class="generate-cards-btn" onclick="generateFlashcards()">
+                    <i class="fas fa-bolt"></i> Generate Deck
+                </button>
+            </div>
+
+            <!-- Flashcard Display Viewport -->
+            <div class="flashcard-viewport">
+                <div class="flashcard-card-container">
+                    <div class="flashcard-card" id="flashcardCard" onclick="flipCard()">
+                        <div class="card-face card-front">
+                            <div class="card-tag">QUESTION</div>
+                            <div class="card-text" id="cardQuestion">Click 'Generate Deck' to begin study session!
                             </div>
-                            <div class="card-face card-back">
-                                <div class="card-tag">ANSWER</div>
-                                <div class="card-text" id="cardAnswer">Answers will appear on the back. Toggle cards
-                                    using next/prev buttons below.</div>
-                                <div class="card-hint"><i class="fas fa-sync-alt"></i> Click card or press Space to flip
-                                </div>
+                            <div class="card-hint"><i class="fas fa-sync-alt"></i> Click card or press Space to flip
+                            </div>
+                        </div>
+                        <div class="card-face card-back">
+                            <div class="card-tag">ANSWER</div>
+                            <div class="card-text" id="cardAnswer">Answers will appear on the back. Toggle cards
+                                using next/prev buttons below.</div>
+                            <div class="card-hint"><i class="fas fa-sync-alt"></i> Click card or press Space to flip
                             </div>
                         </div>
                     </div>
                 </div>
+            </div>
 
-                <!-- Flashcards Navigation Controls -->
-                <div class="flashcard-controls">
-                    <button class="control-btn" onclick="prevCard()" id="prevCardBtn" disabled>
-                        <i class="fas fa-chevron-left"></i> Previous
-                    </button>
-                    <div class="card-indicator">
-                        <span id="cardCounter">Card 0 of 0</span>
-                    </div>
-                    <button class="control-btn" onclick="nextCard()" id="nextCardBtn" disabled>
-                        Next <i class="fas fa-chevron-right"></i>
-                    </button>
+            <!-- Flashcards Navigation Controls -->
+            <div class="flashcard-controls">
+                <button class="control-btn" onclick="prevCard()" id="prevCardBtn" disabled>
+                    <i class="fas fa-chevron-left"></i> Previous
+                </button>
+                <div class="card-indicator">
+                    <span id="cardCounter">Card 0 of 0</span>
                 </div>
+                <button class="control-btn" onclick="nextCard()" id="nextCardBtn" disabled>
+                    Next <i class="fas fa-chevron-right"></i>
+                </button>
+            </div>
 
-                <!-- Visual Progress Bar -->
-                <div class="flashcard-progress-container">
-                    <div class="flashcard-progress-bar" id="flashcardProgressBar" style="width: 0%;"></div>
-                </div>
+            <!-- Visual Progress Bar -->
+            <div class="flashcard-progress-container">
+                <div class="flashcard-progress-bar" id="flashcardProgressBar" style="width: 0%;"></div>
             </div>
         </div>
+    </div>
     </div>
 
     <!-- Admin Link -->
