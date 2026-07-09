@@ -17,10 +17,13 @@ from pptx import Presentation
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
-from sentence_transformers import SentenceTransformer
+try:
+    from sentence_transformers import SentenceTransformer
+except ImportError:
+    SentenceTransformer = None
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
-from huggingface_hub import HfApi
+from huggingface_hub import HfApi, InferenceClient
 from pymongo import MongoClient
 import PyPDF2
 import docx
@@ -230,12 +233,64 @@ print("\n" + "="*60)
 print("🔄 INITIALIZING...")
 print("="*60)
 
+class HFEmbeddingModel:
+    def __init__(self, model_name="sentence-transformers/all-MiniLM-L6-v2", token=None):
+        self.model_name = model_name
+        self.token = token
+        self.local_model = None
+        self.client = None
+        
+        if SentenceTransformer is not None:
+            try:
+                self.local_model = SentenceTransformer(self.model_name)
+                print(f"✅ Loaded local SentenceTransformer model: {self.model_name}")
+            except Exception as e:
+                print(f"⚠️ Could not load local SentenceTransformer: {e}. Falling back to Hugging Face Inference API.")
+        else:
+            print("⚠️ sentence-transformers package not installed. Falling back to Hugging Face Inference API.")
+            
+        if self.local_model is None:
+            self.client = InferenceClient(token=self.token)
+            print("✅ Initialized Hugging Face InferenceClient")
+
+    def encode(self, sentences, **kwargs):
+        if self.local_model:
+            return self.local_model.encode(sentences, **kwargs)
+            
+        if not self.client:
+            self.client = InferenceClient(token=self.token)
+            
+        try:
+            import numpy as np
+            if isinstance(sentences, str):
+                res = self.client.feature_extraction(text=sentences, model=self.model_name)
+                if isinstance(res, np.ndarray):
+                    return res
+                return np.array(res)
+            else:
+                results = []
+                for s in sentences:
+                    res = self.client.feature_extraction(text=s, model=self.model_name)
+                    if isinstance(res, np.ndarray):
+                        results.append(res)
+                    else:
+                        results.append(np.array(res))
+                return np.stack(results)
+        except Exception as e:
+            print(f"❌ Error during HF Inference API feature extraction: {e}")
+            import numpy as np
+            if isinstance(sentences, str):
+                return np.zeros(384)
+            else:
+                return np.zeros((len(sentences), 384))
+
 try:
-    embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-    print("✅ Embedding model loaded")
-except:
+    hf_token = os.getenv('HF_TOKEN')
+    embedding_model = HFEmbeddingModel(token=hf_token)
+    print("✅ Hybrid embedding model loaded successfully")
+except Exception as e:
     embedding_model = None
-    print("❌ Embedding failed")
+    print(f"❌ Embedding failed: {e}")
 
 qdrant_client = None
 try:
