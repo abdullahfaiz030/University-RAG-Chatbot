@@ -1419,8 +1419,6 @@ li {
 }
 
 /* ============ RESPONSIVE ============ */
-
-/* Large tablets and small laptops */
 @media (max-width: 992px) {
     .app-container {
         gap: 0;
@@ -1451,7 +1449,6 @@ li {
     }
 }
 
-/* Tablets */
 @media (max-width: 768px) {
     body {
         padding: 0;
@@ -1480,8 +1477,8 @@ li {
         gap: 5px;
     }
 
-    /* Keep buttons usable size on tablet */
     .header-actions .length-select {
+        min-width: 65px;
         padding: 5px 8px;
         font-size: 11px;
     }
@@ -1604,7 +1601,6 @@ li {
     }
 }
 
-/* Phones */
 @media (max-width: 480px) {
     body {
         padding: 0;
@@ -1657,12 +1653,15 @@ li {
         align-items: center;
     }
 
-    /* KEEP BUTTONS PROPERLY SIZED - NO SCALE */
+    /* LENGTH SELECT - PROPER WIDTH */
     .header-actions .length-select {
-        padding: 4px 6px;
-        font-size: 10px;
-        max-width: 52px;
+        min-width: 62px !important;
+        max-width: none !important;
+        width: auto !important;
+        padding: 5px 8px !important;
+        font-size: 10px !important;
         transform: none !important;
+        appearance: auto;
     }
 
     .header-actions .export-btn-header,
@@ -1694,7 +1693,6 @@ li {
         font-size: 10px;
     }
 
-    /* Hide export on very small screens */
     @media (max-width: 370px) {
         .export-btn-header {
             display: none !important;
@@ -1707,6 +1705,11 @@ li {
         .bot-details h2 {
             font-size: 11px;
             max-width: 80px;
+        }
+
+        .header-actions .length-select {
+            min-width: 55px !important;
+            font-size: 9px !important;
         }
     }
 
@@ -1853,7 +1856,6 @@ li {
     }
 }
 
-/* Fix for iOS Safari touch scrolling */
 @supports (-webkit-touch-callout: none) {
     .chat-messages {
         -webkit-overflow-scrolling: touch;
@@ -1865,7 +1867,6 @@ li {
     }
 }
 
-/* Fix for Android Chrome auto-zoom */
 @media screen and (-webkit-min-device-pixel-ratio: 0) {
 
     input,
