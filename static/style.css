@@ -1120,7 +1120,7 @@ li {
     margin: 4px 0;
 }
 
-/* ============ FLASHCARDS ============ */
+/* ============ FLASHCARDS - RESPONSIVE ALL SCREENS ============ */
 .flashcards-bar {
     display: flex;
     gap: 12px;
@@ -1178,11 +1178,13 @@ li {
     background: radial-gradient(circle at 50% 50%, rgba(29, 78, 216, 0.03) 0%, transparent 60%);
 }
 
+/* Desktop flashcard */
 .flashcard-card-container {
     width: 100%;
     max-width: 500px;
-    height: 290px;
+    height: 320px;
     perspective: 1000px;
+    margin: 0 auto;
 }
 
 .flashcard-card {
@@ -1245,13 +1247,14 @@ li {
 }
 
 .card-tag {
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 800;
     letter-spacing: 2px;
     text-transform: uppercase;
     display: flex;
     align-items: center;
     gap: 6px;
+    flex-shrink: 0;
 }
 
 .card-front .card-tag {
@@ -1263,7 +1266,7 @@ li {
 }
 
 .card-text {
-    font-size: 17px;
+    font-size: 18px;
     font-weight: 600;
     line-height: 1.65;
     text-align: center;
@@ -1272,18 +1275,21 @@ li {
     align-items: center;
     justify-content: center;
     padding: 0 10px;
-    color: var(--text);
+    color: #1e293b;
+    overflow-y: auto;
+    word-wrap: break-word;
 }
 
 .card-hint {
     font-size: 11px;
-    color: var(--text-secondary);
+    color: #5a7299;
     text-align: center;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 6px;
     opacity: 0.65;
+    flex-shrink: 0;
 }
 
 .card-hint i {
@@ -1356,6 +1362,101 @@ li {
     height: 100%;
     background: linear-gradient(to right, var(--primary), var(--accent));
     transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Tablet flashcard */
+@media (max-width: 768px) {
+    .flashcard-card-container {
+        max-width: 450px;
+        height: 280px;
+    }
+
+    .card-face {
+        padding: 24px;
+        border-radius: 16px;
+    }
+
+    .card-text {
+        font-size: 16px;
+    }
+
+    .card-tag {
+        font-size: 10px;
+    }
+}
+
+/* Phone flashcard */
+@media (max-width: 480px) {
+    .flashcard-card-container {
+        max-width: 100%;
+        height: 240px;
+    }
+
+    .card-face {
+        padding: 18px;
+        border-radius: 14px;
+    }
+
+    .card-text {
+        font-size: 14px;
+        line-height: 1.5;
+        padding: 0 5px;
+    }
+
+    .card-tag {
+        font-size: 9px;
+        letter-spacing: 1px;
+    }
+
+    .card-hint {
+        font-size: 9px;
+    }
+
+    .flashcard-controls {
+        gap: 10px;
+        padding: 10px;
+    }
+
+    .control-btn {
+        padding: 8px 14px;
+        font-size: 11px;
+    }
+
+    .card-indicator {
+        font-size: 11px;
+        min-width: 90px;
+    }
+}
+
+/* Small phone flashcard */
+@media (max-width: 370px) {
+    .flashcard-card-container {
+        height: 200px;
+    }
+
+    .card-face {
+        padding: 14px;
+        border-radius: 12px;
+    }
+
+    .card-text {
+        font-size: 13px;
+        line-height: 1.4;
+    }
+
+    .card-tag {
+        font-size: 8px;
+        letter-spacing: 1px;
+    }
+
+    .card-hint {
+        font-size: 8px;
+    }
+
+    .control-btn {
+        padding: 6px 10px;
+        font-size: 10px;
+    }
 }
 
 /* ============ STUDY PLAN SECTION ============ */
@@ -1579,15 +1680,6 @@ li {
         justify-content: center;
     }
 
-    .flashcard-card-container {
-        height: 250px;
-    }
-
-    .card-text {
-        font-size: 15px;
-        padding: 0;
-    }
-
     .studyplan-container {
         padding: 12px !important;
     }
@@ -1601,285 +1693,8 @@ li {
     }
 }
 
+/* ============ MOBILE HEADER FIX (Hides extra buttons to prevent collision) ============ */
 @media (max-width: 480px) {
-    body {
-        padding: 0;
-    }
-
-    .chat-container {
-        height: 100vh;
-        border-radius: 0;
-    }
-
-    .chat-header {
-        padding: 8px 10px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        flex-wrap: nowrap;
-    }
-
-    .bot-info {
-        gap: 8px;
-        flex-shrink: 1;
-        min-width: 0;
-    }
-
-    .bot-avatar {
-        width: 36px;
-        height: 36px;
-        min-width: 36px;
-        min-height: 36px;
-        border-radius: 10px;
-        flex-shrink: 0;
-    }
-
-    .bot-details h2 {
-        font-size: 13px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 100px;
-    }
-
-    .status-indicator {
-        display: none;
-    }
-
-    .header-actions {
-        gap: 5px;
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-    }
-
-    /* LENGTH SELECT - PROPER WIDTH */
-    .header-actions .length-select {
-        min-width: 62px !important;
-        max-width: none !important;
-        width: auto !important;
-        padding: 5px 8px !important;
-        font-size: 10px !important;
-        transform: none !important;
-        appearance: auto;
-    }
-
-    .header-actions .export-btn-header,
-    .header-actions .voice-output-toggle,
-    .header-actions .logout-header-btn {
-        width: 30px;
-        height: 30px;
-        min-width: 30px;
-        min-height: 30px;
-        padding: 0;
-        font-size: 12px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 50%;
-        transform: none !important;
-    }
-
-    .header-actions .new-chat-btn {
-        padding: 5px 10px;
-        font-size: 10px;
-        gap: 3px;
-        border-radius: 50px;
-        transform: none !important;
-        white-space: nowrap;
-    }
-
-    .new-chat-btn i {
-        font-size: 10px;
-    }
-
-    @media (max-width: 370px) {
-        .export-btn-header {
-            display: none !important;
-        }
-
-        .header-actions {
-            gap: 3px;
-        }
-
-        .bot-details h2 {
-            font-size: 11px;
-            max-width: 80px;
-        }
-
-        .header-actions .length-select {
-            min-width: 55px !important;
-            font-size: 9px !important;
-        }
-    }
-
-    .chat-tabs {
-        padding: 3px 5px;
-        gap: 2px;
-    }
-
-    .tab-btn {
-        padding: 6px 8px;
-        font-size: 10px;
-        gap: 3px;
-        flex: 1;
-        justify-content: center;
-    }
-
-    .tab-btn i {
-        font-size: 10px;
-    }
-
-    .message {
-        max-width: 94% !important;
-    }
-
-    .chat-messages {
-        padding: 10px;
-        gap: 10px;
-    }
-
-    .message-avatar {
-        width: 26px;
-        height: 26px;
-        font-size: 11px;
-    }
-
-    .message-bubble {
-        padding: 8px 10px;
-        font-size: 12px;
-        line-height: 1.5;
-    }
-
-    .welcome-message {
-        padding: 16px 8px;
-    }
-
-    .welcome-icon {
-        width: 50px;
-        height: 50px;
-        font-size: 24px;
-        border-radius: 16px;
-    }
-
-    .welcome-message h3 {
-        font-size: 15px;
-    }
-
-    .welcome-message p {
-        font-size: 11px;
-        margin-bottom: 14px;
-    }
-
-    .suggestion-chips {
-        gap: 4px;
-    }
-
-    .chip {
-        padding: 5px 8px;
-        font-size: 10px;
-        gap: 4px;
-    }
-
-    .chip i {
-        font-size: 9px;
-    }
-
-    .chat-input-area {
-        padding: 6px 8px;
-    }
-
-    .input-wrapper {
-        padding: 2px 2px 2px 8px;
-        gap: 4px;
-    }
-
-    textarea {
-        font-size: 16px !important;
-        padding: 6px 0;
-    }
-
-    .mic-btn {
-        width: 32px;
-        height: 32px;
-        font-size: 13px;
-    }
-
-    .send-btn {
-        width: 32px;
-        height: 32px;
-        font-size: 12px;
-    }
-
-    .flashcard-card-container {
-        height: 180px;
-    }
-
-    .card-face {
-        padding: 16px;
-    }
-
-    .card-text {
-        font-size: 12px;
-    }
-
-    .flashcard-controls {
-        gap: 8px;
-        padding: 10px;
-    }
-
-    .control-btn {
-        padding: 7px 12px;
-        font-size: 10px;
-    }
-
-    .studyplan-form {
-        padding: 10px !important;
-    }
-
-    .studyplan-form h3 {
-        font-size: 14px;
-    }
-
-    .studyplan-form input,
-    .studyplan-form select {
-        font-size: 16px !important;
-        padding: 7px 8px;
-    }
-
-    .admin-link {
-        bottom: 10px;
-        right: 10px;
-        width: 32px;
-        height: 32px;
-        font-size: 13px;
-    }
-}
-
-@supports (-webkit-touch-callout: none) {
-    .chat-messages {
-        -webkit-overflow-scrolling: touch;
-    }
-
-    textarea,
-    input {
-        font-size: 16px !important;
-    }
-}
-
-@media screen and (-webkit-min-device-pixel-ratio: 0) {
-
-    input,
-    textarea,
-    select {
-        font-size: 16px;
-    }
-}
-
-/* ============ MOBILE HEADER - HIDE EXTRA BUTTONS TO PREVENT COLLISION ============ */
-@media (max-width: 480px) {
-
-    /* Hide voice toggle and export on all phones */
     .voice-output-toggle {
         display: none !important;
     }
@@ -1888,12 +1703,10 @@ li {
         display: none !important;
     }
 
-    /* Hide doc-status on phones */
     .doc-status {
         display: none !important;
     }
 
-    /* Make new-chat just a circle icon */
     .new-chat-btn {
         width: 30px !important;
         height: 30px !important;
@@ -1912,7 +1725,6 @@ li {
         margin: 0 !important;
     }
 
-    /* Tighter spacing */
     .header-actions {
         gap: 4px !important;
     }
@@ -1935,6 +1747,10 @@ li {
     .bot-details h2 {
         font-size: 12px !important;
         max-width: 85px !important;
+    }
+
+    .status-indicator {
+        display: none !important;
     }
 
     .sidebar-toggle-btn {
@@ -1961,7 +1777,6 @@ li {
     }
 }
 
-/* Extra small phones - hide even more */
 @media (max-width: 360px) {
     .length-select {
         display: none !important;
@@ -1974,5 +1789,25 @@ li {
 
     .header-actions {
         gap: 3px !important;
+    }
+}
+
+@supports (-webkit-touch-callout: none) {
+    .chat-messages {
+        -webkit-overflow-scrolling: touch;
+    }
+
+    textarea,
+    input {
+        font-size: 16px !important;
+    }
+}
+
+@media screen and (-webkit-min-device-pixel-ratio: 0) {
+
+    input,
+    textarea,
+    select {
+        font-size: 16px;
     }
 }
