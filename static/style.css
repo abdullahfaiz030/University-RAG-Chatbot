@@ -1400,6 +1400,24 @@ li {
     gap: 12px;
 }
 
+/* ============ SIDEBAR OVERLAY ============ */
+.sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 49;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+}
+
+.sidebar-overlay.active {
+    display: block;
+    opacity: 1;
+    pointer-events: all;
+}
+
 /* ============ RESPONSIVE ============ */
 
 /* Large tablets and small laptops */
@@ -1459,17 +1477,28 @@ li {
     }
 
     .header-actions {
-        gap: 4px;
+        gap: 5px;
     }
 
-    .header-actions .length-select,
+    /* Keep buttons usable size on tablet */
+    .header-actions .length-select {
+        padding: 5px 8px;
+        font-size: 11px;
+    }
+
     .header-actions .export-btn-header,
     .header-actions .voice-output-toggle,
-    .header-actions .logout-header-btn,
+    .header-actions .logout-header-btn {
+        width: 34px;
+        height: 34px;
+        font-size: 13px;
+        transform: none !important;
+    }
+
     .header-actions .new-chat-btn {
-        transform: scale(0.85);
-        padding: 6px 10px;
+        padding: 6px 12px;
         font-size: 11px;
+        transform: none !important;
     }
 
     .message {
@@ -1587,46 +1616,115 @@ li {
     }
 
     .chat-header {
-        padding: 10px 12px;
+        padding: 8px 10px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: nowrap;
+    }
+
+    .bot-info {
+        gap: 8px;
+        flex-shrink: 1;
+        min-width: 0;
     }
 
     .bot-avatar {
-        width: 34px;
-        height: 34px;
+        width: 36px;
+        height: 36px;
+        min-width: 36px;
+        min-height: 36px;
         border-radius: 10px;
+        flex-shrink: 0;
     }
 
     .bot-details h2 {
         font-size: 13px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100px;
+    }
+
+    .status-indicator {
+        display: none;
     }
 
     .header-actions {
-        gap: 2px;
+        gap: 5px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
     }
 
-    .header-actions .length-select,
+    /* KEEP BUTTONS PROPERLY SIZED - NO SCALE */
+    .header-actions .length-select {
+        padding: 4px 6px;
+        font-size: 10px;
+        max-width: 52px;
+        transform: none !important;
+    }
+
     .header-actions .export-btn-header,
     .header-actions .voice-output-toggle,
-    .header-actions .logout-header-btn,
+    .header-actions .logout-header-btn {
+        width: 30px;
+        height: 30px;
+        min-width: 30px;
+        min-height: 30px;
+        padding: 0;
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        transform: none !important;
+    }
+
     .header-actions .new-chat-btn {
-        transform: scale(0.75);
-        padding: 4px 6px;
+        padding: 5px 10px;
+        font-size: 10px;
+        gap: 3px;
+        border-radius: 50px;
+        transform: none !important;
+        white-space: nowrap;
+    }
+
+    .new-chat-btn i {
         font-size: 10px;
     }
 
+    /* Hide export on very small screens */
+    @media (max-width: 370px) {
+        .export-btn-header {
+            display: none !important;
+        }
+
+        .header-actions {
+            gap: 3px;
+        }
+
+        .bot-details h2 {
+            font-size: 11px;
+            max-width: 80px;
+        }
+    }
+
     .chat-tabs {
-        padding: 4px 6px;
-        gap: 3px;
+        padding: 3px 5px;
+        gap: 2px;
     }
 
     .tab-btn {
         padding: 6px 8px;
         font-size: 10px;
-        gap: 4px;
+        gap: 3px;
+        flex: 1;
+        justify-content: center;
     }
 
     .tab-btn i {
-        font-size: 11px;
+        font-size: 10px;
     }
 
     .message {
@@ -1634,124 +1732,124 @@ li {
     }
 
     .chat-messages {
-        padding: 12px;
+        padding: 10px;
         gap: 10px;
     }
 
     .message-avatar {
-        width: 28px;
-        height: 28px;
-        font-size: 12px;
+        width: 26px;
+        height: 26px;
+        font-size: 11px;
     }
 
     .message-bubble {
-        padding: 8px 12px;
+        padding: 8px 10px;
         font-size: 12px;
         line-height: 1.5;
     }
 
     .welcome-message {
-        padding: 20px 10px;
+        padding: 16px 8px;
     }
 
     .welcome-icon {
-        width: 56px;
-        height: 56px;
-        font-size: 26px;
-        border-radius: 20px;
+        width: 50px;
+        height: 50px;
+        font-size: 24px;
+        border-radius: 16px;
     }
 
     .welcome-message h3 {
-        font-size: 17px;
+        font-size: 15px;
     }
 
     .welcome-message p {
-        font-size: 12px;
-        margin-bottom: 16px;
+        font-size: 11px;
+        margin-bottom: 14px;
     }
 
     .suggestion-chips {
-        gap: 5px;
+        gap: 4px;
     }
 
     .chip {
-        padding: 6px 10px;
+        padding: 5px 8px;
         font-size: 10px;
-        gap: 5px;
+        gap: 4px;
     }
 
     .chip i {
-        font-size: 10px;
+        font-size: 9px;
     }
 
     .chat-input-area {
-        padding: 8px 10px;
+        padding: 6px 8px;
     }
 
     .input-wrapper {
-        padding: 3px 3px 3px 10px;
-        gap: 6px;
+        padding: 2px 2px 2px 8px;
+        gap: 4px;
     }
 
     textarea {
-        font-size: 12px;
+        font-size: 16px !important;
         padding: 6px 0;
     }
 
     .mic-btn {
-        width: 30px;
-        height: 30px;
+        width: 32px;
+        height: 32px;
         font-size: 13px;
     }
 
     .send-btn {
-        width: 30px;
-        height: 30px;
+        width: 32px;
+        height: 32px;
         font-size: 12px;
     }
 
     .flashcard-card-container {
-        height: 200px;
+        height: 180px;
     }
 
     .card-face {
-        padding: 20px;
+        padding: 16px;
     }
 
     .card-text {
-        font-size: 13px;
+        font-size: 12px;
     }
 
     .flashcard-controls {
-        gap: 12px;
-        padding: 12px;
+        gap: 8px;
+        padding: 10px;
     }
 
     .control-btn {
-        padding: 8px 14px;
-        font-size: 11px;
+        padding: 7px 12px;
+        font-size: 10px;
     }
 
     .studyplan-form {
-        padding: 12px !important;
+        padding: 10px !important;
     }
 
     .studyplan-form h3 {
-        font-size: 15px;
+        font-size: 14px;
     }
 
     .studyplan-form input,
     .studyplan-form select {
-        font-size: 12px;
-        padding: 8px 10px;
+        font-size: 16px !important;
+        padding: 7px 8px;
     }
 
     .admin-link {
-        bottom: 12px;
-        right: 12px;
-        width: 34px;
-        height: 34px;
-        font-size: 14px;
+        bottom: 10px;
+        right: 10px;
+        width: 32px;
+        height: 32px;
+        font-size: 13px;
     }
 }
 
@@ -1775,22 +1873,4 @@ li {
     select {
         font-size: 16px;
     }
-}
-
-/* Sidebar overlay for mobile */
-.sidebar-overlay {
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    z-index: 49;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-    pointer-events: none;
-}
-
-.sidebar-overlay.active {
-    display: block;
-    opacity: 1;
-    pointer-events: all;
 }
