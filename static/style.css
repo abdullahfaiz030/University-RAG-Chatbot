@@ -1875,3 +1875,104 @@ li {
         font-size: 16px;
     }
 }
+
+/* ============ MOBILE HEADER - HIDE EXTRA BUTTONS TO PREVENT COLLISION ============ */
+@media (max-width: 480px) {
+
+    /* Hide voice toggle and export on all phones */
+    .voice-output-toggle {
+        display: none !important;
+    }
+
+    .export-btn-header {
+        display: none !important;
+    }
+
+    /* Hide doc-status on phones */
+    .doc-status {
+        display: none !important;
+    }
+
+    /* Make new-chat just a circle icon */
+    .new-chat-btn {
+        width: 30px !important;
+        height: 30px !important;
+        min-width: 30px !important;
+        min-height: 30px !important;
+        padding: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        border-radius: 50% !important;
+        font-size: 0 !important;
+    }
+
+    .new-chat-btn i {
+        font-size: 13px !important;
+        margin: 0 !important;
+    }
+
+    /* Tighter spacing */
+    .header-actions {
+        gap: 4px !important;
+    }
+
+    .chat-header {
+        padding: 6px 8px !important;
+    }
+
+    .bot-info {
+        gap: 5px !important;
+    }
+
+    .bot-avatar {
+        width: 30px !important;
+        height: 30px !important;
+        min-width: 30px !important;
+        min-height: 30px !important;
+    }
+
+    .bot-details h2 {
+        font-size: 12px !important;
+        max-width: 85px !important;
+    }
+
+    .sidebar-toggle-btn {
+        width: 26px !important;
+        height: 26px !important;
+        padding: 3px !important;
+        margin-right: 3px !important;
+        font-size: 12px !important;
+    }
+
+    .length-select {
+        min-width: 50px !important;
+        max-width: 55px !important;
+        padding: 4px 5px !important;
+        font-size: 9px !important;
+    }
+
+    .logout-header-btn {
+        width: 28px !important;
+        height: 28px !important;
+        min-width: 28px !important;
+        min-height: 28px !important;
+        font-size: 11px !important;
+    }
+}
+
+/* Extra small phones - hide even more */
+@media (max-width: 360px) {
+    .length-select {
+        display: none !important;
+    }
+
+    .bot-details h2 {
+        font-size: 11px !important;
+        max-width: 65px !important;
+    }
+
+    .header-actions {
+        gap: 3px !important;
+    }
+}
