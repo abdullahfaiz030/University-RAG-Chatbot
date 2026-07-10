@@ -1776,3 +1776,21 @@ li {
         font-size: 16px;
     }
 }
+
+/* Sidebar overlay for mobile */
+.sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 49;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+}
+
+.sidebar-overlay.active {
+    display: block;
+    opacity: 1;
+    pointer-events: all;
+}
