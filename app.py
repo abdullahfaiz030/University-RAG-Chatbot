@@ -1134,7 +1134,7 @@ def generate_summary():
         print(f"Summary error: {e}")
         return jsonify({'error': 'An internal error occurred.'}), 500
 
-# ========== SMART STUDY PLAN GENERATOR ==========
+# ========== SMART STUDY PLAN GENERATOR (FIXED) ==========
 
 @app.route('/generate-study-plan', methods=['POST'])
 @login_required
@@ -1184,46 +1184,175 @@ def generate_study_plan():
         if not content_summary:
             content_summary = "\n⚠️ No lecture notes found. Plan based on general recommendations."
         
-        system_prompt = """You are an expert academic planner. Create a detailed, personalized study plan.
-FORMAT YOUR RESPONSE AS JSON:
-{"overview":"Brief motivational overview","daily_schedule":"Suggested daily schedule","subjects_breakdown":[{"subject":"Name","priority":"High/Medium/Low","total_hours":20,"topics":["Topic1"],"tips":"Study tips"}],"weekly_plan":[{"week":1,"focus":"Main focus","tasks":["Task1"]}],"revision_strategy":"How to revise","exam_day_tips":"Tips for exam day"}"""
+        num_weeks = max(1, min(12, (days_until_exam + 6) // 7))
+        
+        system_prompt = f"""You are an expert academic planner. Create a detailed, personalized study plan.
+IMPORTANT: Respond ONLY with a valid JSON object. Do NOT wrap it in markdown code blocks.
+Do NOT include any text before or after the JSON.
+
+The JSON must have this exact structure:
+{{
+  "overview": "Brief motivational overview (2-3 sentences)",
+  "daily_schedule": "Suggested daily schedule with time blocks",
+  "subjects_breakdown": [
+    {{
+      "subject": "Subject Name",
+      "priority": "High",
+      "total_hours": 20,
+      "topics": ["Topic 1", "Topic 2", "Topic 3"],
+      "tips": "Study tips for this subject"
+    }}
+  ],
+  "weekly_plan": [
+    {{
+      "week": 1,
+      "focus": "Main focus for this week",
+      "tasks": ["Task 1", "Task 2"]
+    }}
+  ],
+  "revision_strategy": "How to revise effectively",
+  "exam_day_tips": "Tips for exam day"
+}}
+
+Create exactly {num_weeks} weeks in the weekly_plan.
+Each week should have 2-3 specific, actionable tasks.
+Make the plan practical and achievable."""
         
         user_prompt = f"""Create a personalized study plan:
 📅 Exam Date: {exam_date} ({days_until_exam} days away)
 ⏰ Study Hours Per Day: {study_hours_per_day} (Total: {total_study_hours}h)
 📚 Subjects: {subjects_list}
 📄 Notes Found: {content_summary}
-Total Content: {total_content_volume} words"""
+Total Content: {total_content_volume} words
+Number of Weeks: {num_weeks}
+
+Create a realistic weekly plan for exactly {num_weeks} weeks."""
         
         response_text = None
         if gemini_api_key:
             for model in GEMINI_MODELS:
                 try:
-                    response_text = gemini_chat_completion(system_prompt=system_prompt, contents=[{"role":"user","parts":[{"text":user_prompt}]}], model=model, max_tokens=2000, temperature=0.7)
+                    response_text = gemini_chat_completion(
+                        system_prompt=system_prompt, 
+                        contents=[{"role":"user","parts":[{"text":user_prompt}]}], 
+                        model=model, 
+                        max_tokens=2000, 
+                        temperature=0.7
+                    )
                     if response_text: break
-                except: continue
+                except Exception as e:
+                    print(f"Gemini study plan error: {e}")
+                    continue
+        
         if not response_text and groq_api_key:
             for model in GROQ_MODELS:
                 try:
-                    response_text = groq_chat_completion(messages=[{"role":"system","content":system_prompt},{"role":"user","content":user_prompt}], model=model, max_tokens=2000, temperature=0.7)
-                    break
-                except: continue
+                    response_text = groq_chat_completion(
+                        messages=[
+                            {"role":"system","content":system_prompt},
+                            {"role":"user","content":user_prompt}
+                        ], 
+                        model=model, 
+                        max_tokens=2000, 
+                        temperature=0.7
+                    )
+                    if response_text: break
+                except Exception as e:
+                    print(f"Groq study plan error: {e}")
+                    continue
         
         if response_text:
             raw = response_text.strip()
-            if raw.startswith("```"): raw = re.sub(r'^```(?:json)?\n', '', raw); raw = re.sub(r'\n```$', '', raw)
+            print(f"Raw study plan response (first 300 chars): {raw[:300]}")
+            
+            if raw.startswith("```"):
+                raw = re.sub(r'^```(?:json)?\s*\n', '', raw)
+                raw = re.sub(r'\n```\s*$', '', raw)
+            
             try:
                 study_plan = json.loads(raw)
-                study_plan['days_until_exam'] = days_until_exam
-                study_plan['total_study_hours'] = total_study_hours
-                study_plan['subjects'] = subjects
-                return jsonify({'success': True, 'study_plan': study_plan})
-            except:
-                return jsonify({'success': True, 'study_plan': {'overview': response_text, 'days_until_exam': days_until_exam, 'total_study_hours': total_study_hours, 'subjects': subjects, 'raw_response': True}})
-        return jsonify({'error': 'Failed to generate study plan.'}), 500
+                print("✅ Study plan parsed as JSON directly")
+            except json.JSONDecodeError:
+                json_match = re.search(r'\{[\s\S]*\}', raw)
+                if json_match:
+                    try:
+                        study_plan = json.loads(json_match.group(0))
+                        print("✅ Study plan extracted and parsed from response")
+                    except json.JSONDecodeError as e:
+                        print(f"❌ Failed to extract JSON: {e}")
+                        return jsonify({
+                            'success': True, 
+                            'study_plan': {
+                                'overview': raw,
+                                'days_until_exam': days_until_exam,
+                                'total_study_hours': total_study_hours,
+                                'subjects': subjects,
+                                'subjects_breakdown': [],
+                                'weekly_plan': [],
+                                'daily_schedule': '',
+                                'revision_strategy': '',
+                                'exam_day_tips': '',
+                                'raw_response': True
+                            }
+                        })
+                else:
+                    return jsonify({
+                        'success': True, 
+                        'study_plan': {
+                            'overview': raw,
+                            'days_until_exam': days_until_exam,
+                            'total_study_hours': total_study_hours,
+                            'subjects': subjects,
+                            'subjects_breakdown': [],
+                            'weekly_plan': [],
+                            'daily_schedule': '',
+                            'revision_strategy': '',
+                            'exam_day_tips': '',
+                            'raw_response': True
+                        }
+                    })
+            
+            # Handle nested JSON in overview field
+            if isinstance(study_plan.get('overview'), str) and study_plan['overview'].strip().startswith('{'):
+                try:
+                    nested_json = json.loads(study_plan['overview'])
+                    for key in nested_json:
+                        if key not in study_plan or not study_plan[key]:
+                            study_plan[key] = nested_json[key]
+                    if 'overview' in nested_json and not nested_json['overview'].startswith('{'):
+                        study_plan['overview'] = nested_json['overview']
+                    else:
+                        study_plan['overview'] = f"Your {days_until_exam}-day study plan for {', '.join(subjects[:3])} is ready!"
+                    print("✅ Nested JSON in overview field was extracted and merged")
+                except:
+                    pass
+            
+            study_plan['days_until_exam'] = days_until_exam
+            study_plan['total_study_hours'] = total_study_hours
+            study_plan['subjects'] = subjects
+            
+            if 'overview' not in study_plan or not study_plan['overview'] or study_plan['overview'].startswith('{'):
+                study_plan['overview'] = f"Your {days_until_exam}-day study plan for {', '.join(subjects[:3])} is ready! Stay focused and you'll succeed."
+            
+            if 'subjects_breakdown' not in study_plan:
+                study_plan['subjects_breakdown'] = []
+            if 'weekly_plan' not in study_plan:
+                study_plan['weekly_plan'] = []
+            if 'daily_schedule' not in study_plan:
+                study_plan['daily_schedule'] = ''
+            if 'revision_strategy' not in study_plan:
+                study_plan['revision_strategy'] = ''
+            if 'exam_day_tips' not in study_plan:
+                study_plan['exam_day_tips'] = ''
+            
+            print(f"✅ Study plan finalized: {len(study_plan.get('subjects_breakdown', []))} subjects, {len(study_plan.get('weekly_plan', []))} weeks")
+            return jsonify({'success': True, 'study_plan': study_plan})
+        
+        return jsonify({'error': 'Failed to generate study plan. Please try again.'}), 500
+        
     except Exception as e:
-        print(f"Study plan error: {e}")
-        return jsonify({'error': 'An internal error occurred.'}), 500
+        print(f"Study plan error: {traceback.format_exc()}")
+        return jsonify({'error': 'An internal error occurred. Please try again.'}), 500
 
 @app.route('/clear-history', methods=['POST'])
 def clear_history():

@@ -1036,16 +1036,43 @@ var styleEl = document.createElement('style');
 styleEl.textContent = '@keyframes fadeOut { from{opacity:1;transform:translateY(0);} to{opacity:0;transform:translateY(-10px);} }';
 document.head.appendChild(styleEl);
 
-// ========== STUDY PLAN GENERATOR ==========
+// ========== STUDY PLAN GENERATOR (FIXED) ==========
 
 function parseStudyPlanJSON(rawText) {
+    // If it's already an object, return it
+    if (typeof rawText === 'object' && rawText !== null) {
+        return rawText;
+    }
+
     var cleanText = rawText.trim();
+
+    // Try to parse directly
+    try {
+        return JSON.parse(cleanText);
+    } catch (e) {
+        // Continue to other methods
+    }
+
+    // Try to extract from markdown code blocks
     var match = cleanText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-    if (match) { try { return JSON.parse(match[1].trim()); } catch (e) { } }
+    if (match) {
+        try {
+            return JSON.parse(match[1].trim());
+        } catch (e) { }
+    }
+
+    // Remove markdown code block markers
     cleanText = cleanText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+
+    // Find JSON object
     var startIdx = cleanText.indexOf('{');
     var endIdx = cleanText.lastIndexOf('}');
-    if (startIdx >= 0 && endIdx > startIdx) { try { return JSON.parse(cleanText.substring(startIdx, endIdx + 1)); } catch (e) { } }
+    if (startIdx >= 0 && endIdx > startIdx) {
+        try {
+            return JSON.parse(cleanText.substring(startIdx, endIdx + 1));
+        } catch (e) { }
+    }
+
     return null;
 }
 
@@ -1092,20 +1119,41 @@ async function generateStudyPlan() {
         });
         var data = await response.json();
 
+        console.log('Study plan response:', data);
+
         if (data.success && data.study_plan) {
             var plan = data.study_plan;
 
-            if (plan.overview && typeof plan.overview === 'string' && plan.overview.includes('{')) {
-                var parsed = parseStudyPlanJSON(plan.overview);
-                if (parsed) {
-                    plan = { ...plan, ...parsed, days_until_exam: plan.days_until_exam, total_study_hours: plan.total_study_hours, subjects: plan.subjects };
-                }
-            }
-
+            // Check if overview is actually a JSON string containing the full plan
             if (typeof plan.overview === 'string') {
+                var overviewTrimmed = plan.overview.trim();
+
+                // Try to parse overview as JSON (common AI response pattern)
+                if (overviewTrimmed.startsWith('{') || overviewTrimmed.startsWith('```')) {
+                    var parsed = parseStudyPlanJSON(overviewTrimmed);
+                    if (parsed && parsed.overview && !parsed.overview.startsWith('{')) {
+                        // Merge parsed data into plan
+                        plan.overview = parsed.overview;
+                        if (parsed.subjects_breakdown) plan.subjects_breakdown = parsed.subjects_breakdown;
+                        if (parsed.weekly_plan) plan.weekly_plan = parsed.weekly_plan;
+                        if (parsed.daily_schedule) plan.daily_schedule = parsed.daily_schedule;
+                        if (parsed.revision_strategy) plan.revision_strategy = parsed.revision_strategy;
+                        if (parsed.exam_day_tips) plan.exam_day_tips = parsed.exam_day_tips;
+                        console.log('✅ Extracted nested JSON from overview field');
+                    }
+                }
+
+                // Clean up markdown from overview
                 plan.overview = plan.overview.replace(/```json[\s\S]*?```/g, '').replace(/```[\s\S]*?```/g, '').trim();
                 var jsonStart = plan.overview.indexOf('{"');
-                if (jsonStart > 0) plan.overview = plan.overview.substring(0, jsonStart).trim();
+                if (jsonStart > 0) {
+                    plan.overview = plan.overview.substring(0, jsonStart).trim();
+                }
+
+                // If overview still looks like JSON, use a default
+                if (plan.overview.startsWith('{')) {
+                    plan.overview = 'Your personalized study plan is ready!';
+                }
             }
 
             renderStudyPlan(plan);
@@ -1125,18 +1173,58 @@ async function generateStudyPlan() {
 }
 
 function renderStudyPlan(plan) {
+    console.log('Rendering study plan:', plan);
+
+    // Handle raw response (when JSON parsing failed)
+    if (plan.raw_response) {
+        var overviewDiv = document.getElementById('planOverview');
+        var cleanOverview = plan.overview || 'Your personalized study plan is ready!';
+        // Clean up JSON artifacts from display
+        cleanOverview = cleanOverview.replace(/```json[\s\S]*?```/g, '').replace(/```[\s\S]*?```/g, '');
+        if (cleanOverview.startsWith('{')) {
+            cleanOverview = 'Your personalized study plan has been generated! Check the sections below for details.';
+        }
+
+        overviewDiv.innerHTML = `
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+                <i class="fas fa-lightbulb" style="font-size:20px;color:#f59e0b;"></i>
+                <span style="font-weight:700;color:var(--text);font-size:16px;">Study Plan Overview</span>
+            </div>
+            <p style="color:var(--text-secondary);line-height:1.7;font-size:14px;">${cleanOverview}</p>
+            <div style="display:flex;gap:20px;margin-top:12px;flex-wrap:wrap;">
+                <span style="background:white;padding:8px 16px;border-radius:20px;font-size:13px;font-weight:600;color:var(--primary);">📅 ${plan.days_until_exam || 0} days</span>
+                <span style="background:white;padding:8px 16px;border-radius:20px;font-size:13px;font-weight:600;color:var(--success);">⏰ ${plan.total_study_hours || 0} hours</span>
+            </div>`;
+
+        // Hide other sections for raw responses
+        document.getElementById('planSubjects').innerHTML = '';
+        document.getElementById('planWeekly').innerHTML = '';
+        document.getElementById('planDaily').innerHTML = '';
+        document.getElementById('planTips').innerHTML = '';
+        return;
+    }
+
+    // Overview section
     var overviewDiv = document.getElementById('planOverview');
+    var overviewText = plan.overview || 'Your personalized study plan is ready!';
+    // Clean up any JSON artifacts
+    overviewText = overviewText.replace(/```json[\s\S]*?```/g, '').replace(/```[\s\S]*?```/g, '');
+    if (overviewText.startsWith('{')) {
+        overviewText = 'Your personalized study plan is ready!';
+    }
+
     overviewDiv.innerHTML = `
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
             <i class="fas fa-lightbulb" style="font-size:20px;color:#f59e0b;"></i>
             <span style="font-weight:700;color:var(--text);font-size:16px;">Study Plan Overview</span>
         </div>
-        <p style="color:var(--text-secondary);line-height:1.7;font-size:14px;">${plan.overview || 'Your personalized study plan is ready!'}</p>
+        <p style="color:var(--text-secondary);line-height:1.7;font-size:14px;">${overviewText}</p>
         <div style="display:flex;gap:20px;margin-top:12px;flex-wrap:wrap;">
-            <span style="background:white;padding:8px 16px;border-radius:20px;font-size:13px;font-weight:600;color:var(--primary);">📅 ${plan.days_until_exam} days</span>
-            <span style="background:white;padding:8px 16px;border-radius:20px;font-size:13px;font-weight:600;color:var(--success);">⏰ ${plan.total_study_hours} hours</span>
+            <span style="background:white;padding:8px 16px;border-radius:20px;font-size:13px;font-weight:600;color:var(--primary);">📅 ${plan.days_until_exam || 0} days</span>
+            <span style="background:white;padding:8px 16px;border-radius:20px;font-size:13px;font-weight:600;color:var(--success);">⏰ ${plan.total_study_hours || 0} hours</span>
         </div>`;
 
+    // Subjects breakdown
     var subjectsDiv = document.getElementById('planSubjects');
     if (plan.subjects_breakdown && plan.subjects_breakdown.length > 0) {
         var subjectsHTML = '<h4 style="margin-bottom:12px;color:var(--text);font-size:15px;">📚 Subject Breakdown</h4>';
@@ -1148,13 +1236,17 @@ function renderStudyPlan(plan) {
             var topicsHTML = '';
             if (s.topics && s.topics.length > 0) {
                 topicsHTML = '<div style="margin-top:8px;"><span style="font-size:12px;font-weight:600;color:var(--text);">📝 Key Topics:</span><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">' +
-                    s.topics.map(function (t) { return '<span style="background:var(--surface-light);padding:4px 10px;border-radius:15px;font-size:11px;color:var(--text-secondary);">' + t + '</span>'; }).join('') + '</div></div>';
+                    s.topics.map(function (t) {
+                        return '<span style="background:var(--surface-light);padding:4px 10px;border-radius:15px;font-size:11px;color:var(--text-secondary);">' + t + '</span>';
+                    }).join('') + '</div></div>';
             }
 
             var tipsText = '';
-            if (s.tips) { tipsText = Array.isArray(s.tips) ? s.tips.join('; ') : String(s.tips); }
+            if (s.tips) {
+                tipsText = Array.isArray(s.tips) ? s.tips.join('; ') : String(s.tips);
+            }
 
-            return '<div style="background:var(--surface);border:1.5px solid #dbeafe;border-radius:12px;padding:18px;">' +
+            return '<div style="background:var(--surface);border:1.5px solid #dbeafe;border-radius:12px;padding:18px;margin-bottom:12px;">' +
                 '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
                 '<span style="font-weight:700;color:var(--text);font-size:15px;">' + (s.subject || 'Subject') + '</span>' +
                 '<span style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;' + priorityColor + '">' + (s.priority || 'Medium') + ' Priority</span>' +
@@ -1165,26 +1257,41 @@ function renderStudyPlan(plan) {
                 '</div>';
         }).join('');
         subjectsDiv.innerHTML = subjectsHTML;
+    } else {
+        subjectsDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">No subject breakdown available.</p>';
     }
 
+    // Weekly plan
     var weeklyDiv = document.getElementById('planWeekly');
     if (plan.weekly_plan && plan.weekly_plan.length > 0) {
-        var weeklyHTML = '<h4 style="margin-bottom:14px;color:var(--text);font-size:15px;">📅 Weekly Schedule</h4>';
-        weeklyHTML += plan.weekly_plan.map(function (w, i) {
-            var tasksHTML = '';
-            if (w.tasks && w.tasks.length > 0) {
-                tasksHTML = '<div style="display:grid;gap:6px;margin-top:8px;">' + w.tasks.map(function (t) {
-                    if (typeof t === 'object' && t.day) {
-                        return '<div style="display:flex;gap:10px;padding:8px 12px;background:var(--surface-light);border-radius:8px;"><span style="font-weight:600;color:var(--primary);font-size:12px;min-width:50px;">Day ' + t.day + '</span><span style="font-size:12px;color:var(--text-secondary);">' + (t.task || '') + '</span></div>';
-                    }
-                    return '<div style="padding:8px 12px;background:var(--surface-light);border-radius:8px;font-size:12px;color:var(--text-secondary);"><i class="fas fa-check-circle" style="color:var(--success);margin-right:6px;"></i>' + t + '</div>';
-                }).join('') + '</div>';
-            }
-            return '<div style="padding:12px 0;border-bottom:1px solid #dbeafe;"><div style="font-weight:700;color:var(--primary);font-size:14px;margin-bottom:6px;">Week ' + (w.week || (i + 1)) + ': ' + (w.focus || 'Study Focus') + '</div>' + tasksHTML + '</div>';
-        }).join('');
-        weeklyDiv.innerHTML = weeklyHTML;
+        // Filter out weeks that are beyond reasonable range
+        var relevantWeeks = plan.weekly_plan.filter(function (w) {
+            return w.week <= Math.ceil((plan.days_until_exam || 30) / 7) + 2;
+        });
+
+        if (relevantWeeks.length > 0) {
+            var weeklyHTML = '<h4 style="margin-bottom:14px;color:var(--text);font-size:15px;">📅 Weekly Schedule</h4>';
+            weeklyHTML += relevantWeeks.map(function (w, i) {
+                var tasksHTML = '';
+                if (w.tasks && w.tasks.length > 0) {
+                    tasksHTML = '<div style="display:grid;gap:6px;margin-top:8px;">' + w.tasks.map(function (t) {
+                        if (typeof t === 'object' && t.day) {
+                            return '<div style="display:flex;gap:10px;padding:8px 12px;background:var(--surface-light);border-radius:8px;"><span style="font-weight:600;color:var(--primary);font-size:12px;min-width:50px;">Day ' + t.day + '</span><span style="font-size:12px;color:var(--text-secondary);">' + (t.task || '') + '</span></div>';
+                        }
+                        return '<div style="padding:8px 12px;background:var(--surface-light);border-radius:8px;font-size:12px;color:var(--text-secondary);"><i class="fas fa-check-circle" style="color:var(--success);margin-right:6px;"></i>' + t + '</div>';
+                    }).join('') + '</div>';
+                }
+                return '<div style="padding:12px 0;border-bottom:1px solid #dbeafe;"><div style="font-weight:700;color:var(--primary);font-size:14px;margin-bottom:6px;">Week ' + (w.week || (i + 1)) + ': ' + (w.focus || 'Study Focus') + '</div>' + tasksHTML + '</div>';
+            }).join('');
+            weeklyDiv.innerHTML = weeklyHTML;
+        } else {
+            weeklyDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">Weekly schedule not available.</p>';
+        }
+    } else {
+        weeklyDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">No weekly plan available.</p>';
     }
 
+    // Daily schedule
     var dailyDiv = document.getElementById('planDaily');
     if (plan.daily_schedule) {
         dailyDiv.innerHTML = '<h4 style="margin-bottom:12px;color:var(--text);font-size:15px;">📋 Daily Study Schedule</h4><div style="background:var(--surface-light);border-radius:12px;padding:18px;font-size:14px;color:var(--text-secondary);line-height:2;">' + formatAnyValue(plan.daily_schedule) + '</div>';
@@ -1192,13 +1299,14 @@ function renderStudyPlan(plan) {
         dailyDiv.innerHTML = '';
     }
 
+    // Tips
     var tipsDiv = document.getElementById('planTips');
     var tipsHTML = '';
     if (plan.revision_strategy) {
-        tipsHTML += '<div style="background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1.5px solid #bbf7d0;border-radius:12px;padding:18px;"><h4 style="color:#059669;margin-bottom:10px;font-size:14px;"><i class="fas fa-sync-alt"></i> Revision Strategy</h4><p style="font-size:13px;color:var(--text-secondary);line-height:1.7;">' + formatAnyValue(plan.revision_strategy) + '</p></div>';
+        tipsHTML += '<div style="background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1.5px solid #bbf7d0;border-radius:12px;padding:18px;margin-bottom:12px;"><h4 style="color:#059669;margin-bottom:10px;font-size:14px;"><i class="fas fa-sync-alt"></i> Revision Strategy</h4><p style="font-size:13px;color:var(--text-secondary);line-height:1.7;">' + formatAnyValue(plan.revision_strategy) + '</p></div>';
     }
     if (plan.exam_day_tips) {
         tipsHTML += '<div style="background:linear-gradient(135deg,#fef3c7,#fde68a);border:1.5px solid #fcd34d;border-radius:12px;padding:18px;"><h4 style="color:#d97706;margin-bottom:10px;font-size:14px;"><i class="fas fa-star"></i> Exam Day Tips</h4><p style="font-size:13px;color:var(--text-secondary);line-height:1.7;">' + formatAnyValue(plan.exam_day_tips) + '</p></div>';
     }
-    tipsDiv.innerHTML = tipsHTML;
+    tipsDiv.innerHTML = tipsHTML || '<p style="color:var(--text-secondary);font-size:13px;">No tips available.</p>';
 }
