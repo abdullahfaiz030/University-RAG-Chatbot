@@ -278,14 +278,12 @@ async function clearAllSessions() {
 
 // ========== INITIALIZATION ==========
 
-// Wait for DOM to be fully loaded before initializing
 document.addEventListener('DOMContentLoaded', function () {
     initSpeechRecognition();
     loadSessionsFromStorage();
     checkSystemStatus();
 });
 
-// Also try immediate initialization in case DOM is already loaded
 if (document.readyState === 'complete' || document.readyState === 'interactive') {
     setTimeout(function () {
         initSpeechRecognition();
@@ -294,12 +292,10 @@ if (document.readyState === 'complete' || document.readyState === 'interactive')
     }, 100);
 }
 
-// ========== SPEECH RECOGNITION (FIXED) ==========
+// ========== SPEECH RECOGNITION ==========
 
 function initSpeechRecognition() {
     console.log('Initializing speech recognition...');
-
-    // Check for browser support
     var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
@@ -325,7 +321,6 @@ function initSpeechRecognition() {
         recognition.lang = selectedLanguage;
         recognition.maxAlternatives = 1;
 
-        // Handle results
         recognition.onresult = function (event) {
             console.log('Speech recognition result received:', event);
             var transcript = '';
@@ -337,18 +332,14 @@ function initSpeechRecognition() {
                 }
             }
             userInput.value = transcript;
-
-            // If this is a final result, stop listening
             if (event.results[0] && event.results[0].isFinal) {
                 console.log('Final result, stopping recognition');
                 stopListening();
             }
         };
 
-        // Handle errors
         recognition.onerror = function (event) {
             console.error('Speech recognition error:', event.error, event.message);
-
             switch (event.error) {
                 case 'not-allowed':
                 case 'permission-denied':
@@ -369,57 +360,22 @@ function initSpeechRecognition() {
                 default:
                     showToast('Speech recognition error: ' + event.error);
             }
-
             stopListening();
         };
 
-        // Handle when recognition ends
         recognition.onend = function () {
             console.log('Speech recognition ended');
             if (isListening) {
-                // Only stop if we haven't manually stopped
                 stopListening();
             }
         };
 
-        // Handle when recognition starts
         recognition.onstart = function () {
             console.log('Speech recognition started successfully');
         };
 
-        // Handle audio start
-        recognition.onaudiostart = function () {
-            console.log('Audio capturing started');
-        };
-
-        // Handle audio end
-        recognition.onaudioend = function () {
-            console.log('Audio capturing ended');
-        };
-
-        // Handle sound start
-        recognition.onsoundstart = function () {
-            console.log('Sound detected');
-        };
-
-        // Handle sound end
-        recognition.onsoundend = function () {
-            console.log('Sound ended');
-        };
-
-        // Handle speech start
-        recognition.onspeechstart = function () {
-            console.log('Speech detected');
-        };
-
-        // Handle speech end
-        recognition.onspeechend = function () {
-            console.log('Speech ended');
-        };
-
         console.log('Speech recognition initialized successfully');
 
-        // Enable the button
         if (voiceBtn) {
             voiceBtn.style.opacity = '1';
             voiceBtn.style.cursor = 'pointer';
@@ -447,15 +403,11 @@ function initSpeechRecognition() {
 function toggleVoiceInput() {
     console.log('Toggle voice input called, isListening:', isListening);
     console.log('Recognition object:', recognition);
-
-    // Check if recognition is available
     if (!recognition) {
         showToast('Speech recognition is not available');
-        // Try to reinitialize
         initSpeechRecognition();
         return;
     }
-
     if (isListening) {
         stopListening();
     } else {
@@ -465,25 +417,16 @@ function toggleVoiceInput() {
 
 function startListening() {
     console.log('Starting listening...');
-
     if (!recognition) {
         showToast('Speech recognition is not available');
         initSpeechRecognition();
         return;
     }
-
-    // Cancel any ongoing speech synthesis
     if (window.speechSynthesis) {
         window.speechSynthesis.cancel();
     }
-
-    // Clear the input field
     userInput.value = '';
-
-    // Set the language
     recognition.lang = selectedLanguage;
-
-    // Update UI before starting
     isListening = true;
     if (voiceBtn) {
         voiceBtn.classList.add('listening');
@@ -492,16 +435,12 @@ function startListening() {
     if (voiceStatus) {
         voiceStatus.textContent = '🎙️ Listening...';
     }
-
-    // Start recognition with a small delay to ensure UI is updated
     setTimeout(function () {
         try {
             recognition.start();
             console.log('Speech recognition start command sent');
         } catch (error) {
             console.error('Error starting speech recognition:', error);
-
-            // If already started, stop and restart
             if (error.name === 'InvalidStateError' || error.message.includes('already started')) {
                 console.log('Recognition already started, stopping first...');
                 try {
@@ -531,10 +470,7 @@ function startListening() {
 
 function stopListening() {
     console.log('Stopping listening...');
-
     isListening = false;
-
-    // Update UI
     if (voiceBtn) {
         voiceBtn.classList.remove('listening');
         voiceBtn.innerHTML = '<i class="fas fa-microphone"></i>';
@@ -542,14 +478,11 @@ function stopListening() {
     if (voiceStatus) {
         voiceStatus.textContent = 'Click 🎤 for voice';
     }
-
-    // Stop recognition if it's running
     if (recognition) {
         try {
             recognition.stop();
             console.log('Recognition stopped');
         } catch (error) {
-            // Ignore errors when stopping (might already be stopped)
             console.log('Error stopping recognition (may be already stopped):', error.message);
         }
     }
@@ -559,7 +492,6 @@ function changeLanguage() {
     selectedLanguage = languageSelect.value;
     if (recognition) {
         recognition.lang = selectedLanguage;
-        // If currently listening, restart with new language
         if (isListening) {
             stopListening();
             setTimeout(function () {
@@ -949,14 +881,15 @@ function switchTab(tabName) {
     if (tabName === currentTab) return;
     currentTab = tabName;
     document.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.remove('active'); });
-    var tabMap = { 'chat': 'tabBtnChat', 'flashcards': 'tabBtnFlashcards', 'studyplan': 'tabBtnStudyPlan' };
+    var tabMap = { 'chat': 'tabBtnChat', 'flashcards': 'tabBtnFlashcards', 'studyplan': 'tabBtnStudyPlan', 'pastpapers': 'tabBtnPastPapers' };
     if (tabMap[tabName]) document.getElementById(tabMap[tabName]).classList.add('active');
     document.querySelectorAll('.tab-section').forEach(function (s) { s.classList.remove('active'); s.style.display = 'none'; });
-    var secMap = { 'chat': 'chatSection', 'flashcards': 'flashcardsSection', 'studyplan': 'studyplanSection' };
+    var secMap = { 'chat': 'chatSection', 'flashcards': 'flashcardsSection', 'studyplan': 'studyplanSection', 'pastpapers': 'pastpapersSection' };
     var sec = document.getElementById(secMap[tabName]);
     if (sec) { sec.classList.add('active'); sec.style.display = 'flex'; }
     if (tabName === 'chat') userInput.focus();
     else if (tabName === 'flashcards') document.getElementById('flashcardTopic').focus();
+    else if (tabName === 'pastpapers') { loadTopicRankings(); loadPastPapersList(); }
 }
 
 async function generateFlashcards() {
@@ -1036,64 +969,25 @@ var styleEl = document.createElement('style');
 styleEl.textContent = '@keyframes fadeOut { from{opacity:1;transform:translateY(0);} to{opacity:0;transform:translateY(-10px);} }';
 document.head.appendChild(styleEl);
 
-// ========== STUDY PLAN GENERATOR (FIXED) ==========
+// ========== STUDY PLAN GENERATOR ==========
 
 function parseStudyPlanJSON(rawText) {
-    // If it's already an object, return it
-    if (typeof rawText === 'object' && rawText !== null) {
-        return rawText;
-    }
-
+    if (typeof rawText === 'object' && rawText !== null) return rawText;
     var cleanText = rawText.trim();
-
-    // Try to parse directly
-    try {
-        return JSON.parse(cleanText);
-    } catch (e) {
-        // Continue to other methods
-    }
-
-    // Try to extract from markdown code blocks
+    try { return JSON.parse(cleanText); } catch (e) { }
     var match = cleanText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-    if (match) {
-        try {
-            return JSON.parse(match[1].trim());
-        } catch (e) { }
-    }
-
-    // Remove markdown code block markers
+    if (match) { try { return JSON.parse(match[1].trim()); } catch (e) { } }
     cleanText = cleanText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-
-    // Find JSON object
-    var startIdx = cleanText.indexOf('{');
-    var endIdx = cleanText.lastIndexOf('}');
-    if (startIdx >= 0 && endIdx > startIdx) {
-        try {
-            return JSON.parse(cleanText.substring(startIdx, endIdx + 1));
-        } catch (e) { }
-    }
-
+    var startIdx = cleanText.indexOf('{'); var endIdx = cleanText.lastIndexOf('}');
+    if (startIdx >= 0 && endIdx > startIdx) { try { return JSON.parse(cleanText.substring(startIdx, endIdx + 1)); } catch (e) { } }
     return null;
 }
 
 function formatAnyValue(value) {
     if (value === null || value === undefined) return '';
     if (typeof value === 'string') return value.replace(/\n/g, '<br>');
-    if (Array.isArray(value)) {
-        return value.map(function (v) {
-            if (typeof v === 'object' && v !== null) return JSON.stringify(v);
-            return '• ' + v;
-        }).join('<br>');
-    }
-    if (typeof value === 'object') {
-        var html = '';
-        for (var key in value) {
-            if (value.hasOwnProperty(key)) {
-                html += '<strong>' + key + ':</strong> ' + (typeof value[key] === 'string' ? value[key] : formatAnyValue(value[key])) + '<br>';
-            }
-        }
-        return html;
-    }
+    if (Array.isArray(value)) { return value.map(function (v) { if (typeof v === 'object' && v !== null) return JSON.stringify(v); return '• ' + v; }).join('<br>'); }
+    if (typeof value === 'object') { var html = ''; for (var key in value) { if (value.hasOwnProperty(key)) { html += '<strong>' + key + ':</strong> ' + (typeof value[key] === 'string' ? value[key] : formatAnyValue(value[key])) + '<br>'; } } return html; }
     return String(value);
 }
 
@@ -1103,128 +997,53 @@ async function generateStudyPlan() {
     var hoursPerDay = document.getElementById('studyHours').value;
     var btn = document.getElementById('generatePlanBtn');
     var resultDiv = document.getElementById('studyPlanResult');
-
     if (!examDate) { showToast('Please select your exam date'); return; }
     if (!subjects) { showToast('Please enter your subjects'); return; }
-
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating Plan...';
-    resultDiv.style.display = 'none';
-
+    btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating Plan...'; resultDiv.style.display = 'none';
     try {
-        var response = await fetch('/generate-study-plan', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ exam_date: examDate, subjects: subjects, hours_per_day: parseInt(hoursPerDay) })
-        });
+        var response = await fetch('/generate-study-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ exam_date: examDate, subjects: subjects, hours_per_day: parseInt(hoursPerDay) }) });
         var data = await response.json();
-
-        console.log('Study plan response:', data);
-
         if (data.success && data.study_plan) {
             var plan = data.study_plan;
-
-            // Check if overview is actually a JSON string containing the full plan
             if (typeof plan.overview === 'string') {
                 var overviewTrimmed = plan.overview.trim();
-
-                // Try to parse overview as JSON (common AI response pattern)
                 if (overviewTrimmed.startsWith('{') || overviewTrimmed.startsWith('```')) {
                     var parsed = parseStudyPlanJSON(overviewTrimmed);
                     if (parsed && parsed.overview && !parsed.overview.startsWith('{')) {
-                        // Merge parsed data into plan
                         plan.overview = parsed.overview;
                         if (parsed.subjects_breakdown) plan.subjects_breakdown = parsed.subjects_breakdown;
                         if (parsed.weekly_plan) plan.weekly_plan = parsed.weekly_plan;
                         if (parsed.daily_schedule) plan.daily_schedule = parsed.daily_schedule;
                         if (parsed.revision_strategy) plan.revision_strategy = parsed.revision_strategy;
                         if (parsed.exam_day_tips) plan.exam_day_tips = parsed.exam_day_tips;
-                        console.log('✅ Extracted nested JSON from overview field');
                     }
                 }
-
-                // Clean up markdown from overview
                 plan.overview = plan.overview.replace(/```json[\s\S]*?```/g, '').replace(/```[\s\S]*?```/g, '').trim();
                 var jsonStart = plan.overview.indexOf('{"');
-                if (jsonStart > 0) {
-                    plan.overview = plan.overview.substring(0, jsonStart).trim();
-                }
-
-                // If overview still looks like JSON, use a default
-                if (plan.overview.startsWith('{')) {
-                    plan.overview = 'Your personalized study plan is ready!';
-                }
+                if (jsonStart > 0) plan.overview = plan.overview.substring(0, jsonStart).trim();
+                if (plan.overview.startsWith('{')) plan.overview = 'Your personalized study plan is ready!';
             }
-
-            renderStudyPlan(plan);
-            resultDiv.style.display = 'block';
-            resultDiv.scrollIntoView({ behavior: 'smooth' });
-            showToast('✅ Study plan generated!');
-        } else {
-            showToast(data.error || 'Failed to generate plan');
-        }
-    } catch (error) {
-        console.error('Study plan error:', error);
-        showToast('Connection error. Please try again.');
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-magic"></i> Generate Study Plan';
-    }
+            renderStudyPlan(plan); resultDiv.style.display = 'block'; resultDiv.scrollIntoView({ behavior: 'smooth' }); showToast('✅ Study plan generated!');
+        } else { showToast(data.error || 'Failed to generate plan'); }
+    } catch (error) { console.error('Study plan error:', error); showToast('Connection error. Please try again.'); }
+    finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-magic"></i> Generate Study Plan'; }
 }
 
 function renderStudyPlan(plan) {
-    console.log('Rendering study plan:', plan);
-
-    // Handle raw response (when JSON parsing failed)
     if (plan.raw_response) {
         var overviewDiv = document.getElementById('planOverview');
-        var cleanOverview = plan.overview || 'Your personalized study plan is ready!';
-        // Clean up JSON artifacts from display
-        cleanOverview = cleanOverview.replace(/```json[\s\S]*?```/g, '').replace(/```[\s\S]*?```/g, '');
-        if (cleanOverview.startsWith('{')) {
-            cleanOverview = 'Your personalized study plan has been generated! Check the sections below for details.';
-        }
-
-        overviewDiv.innerHTML = `
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-                <i class="fas fa-lightbulb" style="font-size:20px;color:#f59e0b;"></i>
-                <span style="font-weight:700;color:var(--text);font-size:16px;">Study Plan Overview</span>
-            </div>
-            <p style="color:var(--text-secondary);line-height:1.7;font-size:14px;">${cleanOverview}</p>
-            <div style="display:flex;gap:20px;margin-top:12px;flex-wrap:wrap;">
-                <span style="background:white;padding:8px 16px;border-radius:20px;font-size:13px;font-weight:600;color:var(--primary);">📅 ${plan.days_until_exam || 0} days</span>
-                <span style="background:white;padding:8px 16px;border-radius:20px;font-size:13px;font-weight:600;color:var(--success);">⏰ ${plan.total_study_hours || 0} hours</span>
-            </div>`;
-
-        // Hide other sections for raw responses
-        document.getElementById('planSubjects').innerHTML = '';
-        document.getElementById('planWeekly').innerHTML = '';
-        document.getElementById('planDaily').innerHTML = '';
-        document.getElementById('planTips').innerHTML = '';
+        var cleanOverview = (plan.overview || 'Your personalized study plan is ready!').replace(/```json[\s\S]*?```/g, '').replace(/```[\s\S]*?```/g, '');
+        if (cleanOverview.startsWith('{')) cleanOverview = 'Your personalized study plan has been generated!';
+        overviewDiv.innerHTML = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;"><i class="fas fa-lightbulb" style="font-size:20px;color:#f59e0b;"></i><span style="font-weight:700;color:var(--text);font-size:16px;">Study Plan Overview</span></div><p style="color:var(--text-secondary);line-height:1.7;font-size:14px;">' + cleanOverview + '</p><div style="display:flex;gap:20px;margin-top:12px;flex-wrap:wrap;"><span style="background:white;padding:8px 16px;border-radius:20px;font-size:13px;font-weight:600;color:var(--primary);">📅 ' + (plan.days_until_exam || 0) + ' days</span><span style="background:white;padding:8px 16px;border-radius:20px;font-size:13px;font-weight:600;color:var(--success);">⏰ ' + (plan.total_study_hours || 0) + ' hours</span></div>';
+        document.getElementById('planSubjects').innerHTML = ''; document.getElementById('planWeekly').innerHTML = '';
+        document.getElementById('planDaily').innerHTML = ''; document.getElementById('planTips').innerHTML = '';
         return;
     }
-
-    // Overview section
     var overviewDiv = document.getElementById('planOverview');
-    var overviewText = plan.overview || 'Your personalized study plan is ready!';
-    // Clean up any JSON artifacts
-    overviewText = overviewText.replace(/```json[\s\S]*?```/g, '').replace(/```[\s\S]*?```/g, '');
-    if (overviewText.startsWith('{')) {
-        overviewText = 'Your personalized study plan is ready!';
-    }
+    var overviewText = (plan.overview || 'Your personalized study plan is ready!').replace(/```json[\s\S]*?```/g, '').replace(/```[\s\S]*?```/g, '');
+    if (overviewText.startsWith('{')) overviewText = 'Your personalized study plan is ready!';
+    overviewDiv.innerHTML = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;"><i class="fas fa-lightbulb" style="font-size:20px;color:#f59e0b;"></i><span style="font-weight:700;color:var(--text);font-size:16px;">Study Plan Overview</span></div><p style="color:var(--text-secondary);line-height:1.7;font-size:14px;">' + overviewText + '</p><div style="display:flex;gap:20px;margin-top:12px;flex-wrap:wrap;"><span style="background:white;padding:8px 16px;border-radius:20px;font-size:13px;font-weight:600;color:var(--primary);">📅 ' + (plan.days_until_exam || 0) + ' days</span><span style="background:white;padding:8px 16px;border-radius:20px;font-size:13px;font-weight:600;color:var(--success);">⏰ ' + (plan.total_study_hours || 0) + ' hours</span></div>';
 
-    overviewDiv.innerHTML = `
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-            <i class="fas fa-lightbulb" style="font-size:20px;color:#f59e0b;"></i>
-            <span style="font-weight:700;color:var(--text);font-size:16px;">Study Plan Overview</span>
-        </div>
-        <p style="color:var(--text-secondary);line-height:1.7;font-size:14px;">${overviewText}</p>
-        <div style="display:flex;gap:20px;margin-top:12px;flex-wrap:wrap;">
-            <span style="background:white;padding:8px 16px;border-radius:20px;font-size:13px;font-weight:600;color:var(--primary);">📅 ${plan.days_until_exam || 0} days</span>
-            <span style="background:white;padding:8px 16px;border-radius:20px;font-size:13px;font-weight:600;color:var(--success);">⏰ ${plan.total_study_hours || 0} hours</span>
-        </div>`;
-
-    // Subjects breakdown
     var subjectsDiv = document.getElementById('planSubjects');
     if (plan.subjects_breakdown && plan.subjects_breakdown.length > 0) {
         var subjectsHTML = '<h4 style="margin-bottom:12px;color:var(--text);font-size:15px;">📚 Subject Breakdown</h4>';
@@ -1232,81 +1051,104 @@ function renderStudyPlan(plan) {
             var priorityColor = 'background:#dbeafe;color:#2563eb;';
             if (s.priority === 'High') priorityColor = 'background:#fee2e2;color:#dc2626;';
             else if (s.priority === 'Medium') priorityColor = 'background:#fef3c7;color:#d97706;';
-
             var topicsHTML = '';
-            if (s.topics && s.topics.length > 0) {
-                topicsHTML = '<div style="margin-top:8px;"><span style="font-size:12px;font-weight:600;color:var(--text);">📝 Key Topics:</span><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">' +
-                    s.topics.map(function (t) {
-                        return '<span style="background:var(--surface-light);padding:4px 10px;border-radius:15px;font-size:11px;color:var(--text-secondary);">' + t + '</span>';
-                    }).join('') + '</div></div>';
-            }
-
-            var tipsText = '';
-            if (s.tips) {
-                tipsText = Array.isArray(s.tips) ? s.tips.join('; ') : String(s.tips);
-            }
-
-            return '<div style="background:var(--surface);border:1.5px solid #dbeafe;border-radius:12px;padding:18px;margin-bottom:12px;">' +
-                '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
-                '<span style="font-weight:700;color:var(--text);font-size:15px;">' + (s.subject || 'Subject') + '</span>' +
-                '<span style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;' + priorityColor + '">' + (s.priority || 'Medium') + ' Priority</span>' +
-                '</div>' +
-                '<p style="font-size:13px;color:var(--text-secondary);margin-bottom:6px;">⏱️ <strong>' + (s.total_hours || 0) + ' hours</strong></p>' +
-                topicsHTML +
-                (tipsText ? '<p style="font-size:12px;color:var(--primary);margin-top:8px;padding:8px;background:rgba(29,78,216,0.05);border-radius:8px;">💡 <strong>Tip:</strong> ' + tipsText + '</p>' : '') +
-                '</div>';
+            if (s.topics && s.topics.length > 0) { topicsHTML = '<div style="margin-top:8px;"><span style="font-size:12px;font-weight:600;color:var(--text);">📝 Key Topics:</span><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">' + s.topics.map(function (t) { return '<span style="background:var(--surface-light);padding:4px 10px;border-radius:15px;font-size:11px;color:var(--text-secondary);">' + t + '</span>'; }).join('') + '</div></div>'; }
+            var tipsText = s.tips ? (Array.isArray(s.tips) ? s.tips.join('; ') : String(s.tips)) : '';
+            return '<div style="background:var(--surface);border:1.5px solid #dbeafe;border-radius:12px;padding:18px;margin-bottom:12px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;"><span style="font-weight:700;color:var(--text);font-size:15px;">' + (s.subject || 'Subject') + '</span><span style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;' + priorityColor + '">' + (s.priority || 'Medium') + ' Priority</span></div><p style="font-size:13px;color:var(--text-secondary);margin-bottom:6px;">⏱️ <strong>' + (s.total_hours || 0) + ' hours</strong></p>' + topicsHTML + (tipsText ? '<p style="font-size:12px;color:var(--primary);margin-top:8px;padding:8px;background:rgba(29,78,216,0.05);border-radius:8px;">💡 <strong>Tip:</strong> ' + tipsText + '</p>' : '') + '</div>';
         }).join('');
         subjectsDiv.innerHTML = subjectsHTML;
-    } else {
-        subjectsDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">No subject breakdown available.</p>';
-    }
+    } else { subjectsDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">No subject breakdown available.</p>'; }
 
-    // Weekly plan
     var weeklyDiv = document.getElementById('planWeekly');
     if (plan.weekly_plan && plan.weekly_plan.length > 0) {
-        // Filter out weeks that are beyond reasonable range
-        var relevantWeeks = plan.weekly_plan.filter(function (w) {
-            return w.week <= Math.ceil((plan.days_until_exam || 30) / 7) + 2;
-        });
-
+        var relevantWeeks = plan.weekly_plan.filter(function (w) { return w.week <= Math.ceil((plan.days_until_exam || 30) / 7) + 2; });
         if (relevantWeeks.length > 0) {
             var weeklyHTML = '<h4 style="margin-bottom:14px;color:var(--text);font-size:15px;">📅 Weekly Schedule</h4>';
             weeklyHTML += relevantWeeks.map(function (w, i) {
                 var tasksHTML = '';
-                if (w.tasks && w.tasks.length > 0) {
-                    tasksHTML = '<div style="display:grid;gap:6px;margin-top:8px;">' + w.tasks.map(function (t) {
-                        if (typeof t === 'object' && t.day) {
-                            return '<div style="display:flex;gap:10px;padding:8px 12px;background:var(--surface-light);border-radius:8px;"><span style="font-weight:600;color:var(--primary);font-size:12px;min-width:50px;">Day ' + t.day + '</span><span style="font-size:12px;color:var(--text-secondary);">' + (t.task || '') + '</span></div>';
-                        }
-                        return '<div style="padding:8px 12px;background:var(--surface-light);border-radius:8px;font-size:12px;color:var(--text-secondary);"><i class="fas fa-check-circle" style="color:var(--success);margin-right:6px;"></i>' + t + '</div>';
-                    }).join('') + '</div>';
-                }
+                if (w.tasks && w.tasks.length > 0) { tasksHTML = '<div style="display:grid;gap:6px;margin-top:8px;">' + w.tasks.map(function (t) { if (typeof t === 'object' && t.day) { return '<div style="display:flex;gap:10px;padding:8px 12px;background:var(--surface-light);border-radius:8px;"><span style="font-weight:600;color:var(--primary);font-size:12px;min-width:50px;">Day ' + t.day + '</span><span style="font-size:12px;color:var(--text-secondary);">' + (t.task || '') + '</span></div>'; } return '<div style="padding:8px 12px;background:var(--surface-light);border-radius:8px;font-size:12px;color:var(--text-secondary);"><i class="fas fa-check-circle" style="color:var(--success);margin-right:6px;"></i>' + t + '</div>'; }).join('') + '</div>'; }
                 return '<div style="padding:12px 0;border-bottom:1px solid #dbeafe;"><div style="font-weight:700;color:var(--primary);font-size:14px;margin-bottom:6px;">Week ' + (w.week || (i + 1)) + ': ' + (w.focus || 'Study Focus') + '</div>' + tasksHTML + '</div>';
             }).join('');
             weeklyDiv.innerHTML = weeklyHTML;
-        } else {
-            weeklyDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">Weekly schedule not available.</p>';
-        }
-    } else {
-        weeklyDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">No weekly plan available.</p>';
-    }
+        } else { weeklyDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">Weekly schedule not available.</p>'; }
+    } else { weeklyDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">No weekly plan available.</p>'; }
 
-    // Daily schedule
     var dailyDiv = document.getElementById('planDaily');
-    if (plan.daily_schedule) {
-        dailyDiv.innerHTML = '<h4 style="margin-bottom:12px;color:var(--text);font-size:15px;">📋 Daily Study Schedule</h4><div style="background:var(--surface-light);border-radius:12px;padding:18px;font-size:14px;color:var(--text-secondary);line-height:2;">' + formatAnyValue(plan.daily_schedule) + '</div>';
-    } else {
-        dailyDiv.innerHTML = '';
-    }
+    if (plan.daily_schedule) { dailyDiv.innerHTML = '<h4 style="margin-bottom:12px;color:var(--text);font-size:15px;">📋 Daily Study Schedule</h4><div style="background:var(--surface-light);border-radius:12px;padding:18px;font-size:14px;color:var(--text-secondary);line-height:2;">' + formatAnyValue(plan.daily_schedule) + '</div>'; }
+    else { dailyDiv.innerHTML = ''; }
 
-    // Tips
     var tipsDiv = document.getElementById('planTips');
     var tipsHTML = '';
-    if (plan.revision_strategy) {
-        tipsHTML += '<div style="background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1.5px solid #bbf7d0;border-radius:12px;padding:18px;margin-bottom:12px;"><h4 style="color:#059669;margin-bottom:10px;font-size:14px;"><i class="fas fa-sync-alt"></i> Revision Strategy</h4><p style="font-size:13px;color:var(--text-secondary);line-height:1.7;">' + formatAnyValue(plan.revision_strategy) + '</p></div>';
-    }
-    if (plan.exam_day_tips) {
-        tipsHTML += '<div style="background:linear-gradient(135deg,#fef3c7,#fde68a);border:1.5px solid #fcd34d;border-radius:12px;padding:18px;"><h4 style="color:#d97706;margin-bottom:10px;font-size:14px;"><i class="fas fa-star"></i> Exam Day Tips</h4><p style="font-size:13px;color:var(--text-secondary);line-height:1.7;">' + formatAnyValue(plan.exam_day_tips) + '</p></div>';
-    }
+    if (plan.revision_strategy) { tipsHTML += '<div style="background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1.5px solid #bbf7d0;border-radius:12px;padding:18px;margin-bottom:12px;"><h4 style="color:#059669;margin-bottom:10px;font-size:14px;"><i class="fas fa-sync-alt"></i> Revision Strategy</h4><p style="font-size:13px;color:var(--text-secondary);line-height:1.7;">' + formatAnyValue(plan.revision_strategy) + '</p></div>'; }
+    if (plan.exam_day_tips) { tipsHTML += '<div style="background:linear-gradient(135deg,#fef3c7,#fde68a);border:1.5px solid #fcd34d;border-radius:12px;padding:18px;"><h4 style="color:#d97706;margin-bottom:10px;font-size:14px;"><i class="fas fa-star"></i> Exam Day Tips</h4><p style="font-size:13px;color:var(--text-secondary);line-height:1.7;">' + formatAnyValue(plan.exam_day_tips) + '</p></div>'; }
     tipsDiv.innerHTML = tipsHTML || '<p style="color:var(--text-secondary);font-size:13px;">No tips available.</p>';
+}
+
+// ========== PAST PAPER INTELLIGENCE ==========
+
+async function loadTopicRankings() {
+    var btn = document.getElementById('refreshRankingsBtn');
+    var listDiv = document.getElementById('topicRankingsList');
+    if (!btn || !listDiv) return;
+    btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+    try {
+        var response = await fetch('/api/past-papers/rankings');
+        var data = await response.json();
+        if (data.success && data.rankings && data.rankings.topic_rankings && data.rankings.topic_rankings.length > 0) {
+            var rankings = data.rankings;
+            var html = '<div style="background:var(--surface-light);border-radius:12px;padding:16px;margin-bottom:12px;"><p style="font-size:13px;color:var(--text-secondary);">📊 <strong>' + rankings.total_papers_analyzed + '</strong> papers analyzed | <strong>' + rankings.total_questions_found + '</strong> questions found</p></div>';
+            html += rankings.topic_rankings.map(function (topic, index) {
+                var badgeColor = topic.importance === 'High' ? 'background:#fee2e2;color:#dc2626;' : topic.importance === 'Medium' ? 'background:#fef3c7;color:#d97706;' : 'background:#dbeafe;color:#2563eb;';
+                var medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '';
+                return '<div style="background:var(--surface);border:1.5px solid #dbeafe;border-radius:12px;padding:16px;display:flex;justify-content:space-between;align-items:center;"><div style="flex:1;"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="font-size:18px;">' + medal + '</span><span style="font-weight:700;color:var(--text);font-size:15px;">' + topic.topic + '</span><span style="padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;' + badgeColor + '">' + topic.importance + '</span></div><p style="font-size:12px;color:var(--text-secondary);">📝 Appeared in <strong>' + topic.appearances + '</strong> papers | 🔑 Keywords: ' + topic.keywords.slice(0, 5).join(', ') + (topic.years && topic.years.length > 0 ? ' | 📅 Years: ' + topic.years.join(', ') : '') + '</p></div><div style="text-align:center;min-width:60px;"><div style="font-size:24px;font-weight:800;color:var(--primary);">' + topic.total_frequency + '</div><div style="font-size:10px;color:var(--text-secondary);">mentions</div></div></div>';
+            }).join('');
+            listDiv.innerHTML = html;
+        } else { listDiv.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:40px;">No topics found. Upload past papers from the admin panel to see rankings.</p>'; }
+    } catch (error) { console.error('Error loading rankings:', error); listDiv.innerHTML = '<p style="color:var(--error);text-align:center;padding:40px;">Error loading rankings. Please try again.</p>'; }
+    finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh'; }
+}
+
+async function searchPastPapers() {
+    var query = document.getElementById('pastPaperSearch').value.trim();
+    if (!query) { showToast('Please enter a search query'); return; }
+    var btn = document.getElementById('searchPastPaperBtn');
+    var resultsDiv = document.getElementById('pastPaperSearchResults');
+    var resultsContent = document.getElementById('searchResultsContent');
+    btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Searching...';
+    resultsDiv.style.display = 'block'; resultsContent.innerHTML = '<p style="text-align:center;padding:20px;"><i class="fas fa-spinner fa-spin"></i> Searching past papers...</p>';
+    try {
+        var response = await fetch('/api/past-papers/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: query }) });
+        var data = await response.json();
+        if (data.success) {
+            var html = '';
+            if (data.related_topics && data.related_topics.length > 0) {
+                html += '<h4 style="color:var(--text);font-size:14px;margin-bottom:12px;">📊 Related Topics</h4><div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;">';
+                data.related_topics.forEach(function (topic) {
+                    var badgeColor = topic.importance === 'High' ? 'background:#fee2e2;color:#dc2626;' : topic.importance === 'Medium' ? 'background:#fef3c7;color:#d97706;' : 'background:#dbeafe;color:#2563eb;';
+                    html += '<span style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;' + badgeColor + '">' + topic.topic + ' (' + topic.frequency + '×)</span>';
+                });
+                html += '</div>';
+            }
+            if (data.related_questions && data.related_questions.length > 0) {
+                html += '<h4 style="color:var(--text);font-size:14px;margin-bottom:12px;">❓ Related Questions</h4>';
+                html += data.related_questions.map(function (q) { return '<div style="background:var(--surface);border:1.5px solid #dbeafe;border-radius:10px;padding:14px;margin-bottom:8px;"><p style="font-size:13px;color:var(--text);margin-bottom:6px;">' + q.question + '</p><span style="font-size:11px;color:var(--text-secondary);">📄 ' + q.paper + ' (' + q.year + ')</span></div>'; }).join('');
+            }
+            if (!html) html = '<p style="color:var(--text-secondary);text-align:center;padding:40px;">No results found for "' + query + '".</p>';
+            resultsContent.innerHTML = html;
+        } else { resultsContent.innerHTML = '<p style="color:var(--error);text-align:center;padding:20px;">Search failed. Please try again.</p>'; }
+    } catch (error) { console.error('Search error:', error); resultsContent.innerHTML = '<p style="color:var(--error);text-align:center;padding:20px;">Error searching. Please try again.</p>'; }
+    finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-search"></i> Search'; }
+}
+
+async function loadPastPapersList() {
+    try {
+        var response = await fetch('/api/past-papers/list');
+        var data = await response.json();
+        if (data.success && data.papers && data.papers.length > 0) {
+            var html = data.papers.map(function (paper) {
+                return '<div style="background:var(--surface);border:1.5px solid #dbeafe;border-radius:10px;padding:14px;display:flex;justify-content:space-between;align-items:center;"><div><p style="font-weight:600;color:var(--text);font-size:14px;">📄 ' + paper.filename + '</p><p style="font-size:12px;color:var(--text-secondary);">📅 ' + paper.year + ' | 📝 ' + paper.questions_count + ' questions | 🏷️ ' + paper.topics_count + ' topics</p></div><span style="font-size:11px;color:var(--text-secondary);">Analyzed: ' + new Date(paper.analyzed_at).toLocaleDateString() + '</span></div>';
+            }).join('');
+            document.getElementById('pastPapersList').innerHTML = html;
+        }
+    } catch (error) { console.error('Error loading papers list:', error); }
 }

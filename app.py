@@ -597,6 +597,139 @@ def generate_suggestions(user_message, response_text):
     else:
         return ["Can you explain more?", "What's an example of this?", "How is this applied in practice?"]
 
+# ========== PAST PAPER INTELLIGENCE ==========
+
+past_paper_analysis = {}
+
+def extract_questions_from_text(text):
+    questions = []
+    question_patterns = [
+        r'(?:^|\n)\s*(?:\d+[\.\)]\s*)(.*?\?)',
+        r'(?:^|\n)\s*(?:Q\d+[\.\):]\s*)(.*?\?)',
+        r'(?:^|\n)\s*(?:Question\s*\d+[\.\):]\s*)(.*?\?)',
+        r'(?:^|\n)\s*(?:[A-Z][\.\)]\s*)(.*?\?)',
+        r'(?:^|\n)\s*(?:•|\-|\*)\s*(.*?\?)',
+    ]
+    for pattern in question_patterns:
+        matches = re.findall(pattern, text, re.IGNORECASE | re.MULTILINE)
+        questions.extend([q.strip() for q in matches if len(q.strip()) > 10])
+    essay_patterns = [
+        r'(?:^|\n)\s*(?:\d+[\.\)]\s*)((?:Discuss|Explain|Describe|Analyze|Compare|Evaluate|Define|Outline|Summarize|Justify|Illustrate).*?)(?:\n|$)',
+        r'(?:^|\n)\s*(?:Q\d+[\.\):]\s*)((?:Discuss|Explain|Describe|Analyze|Compare|Evaluate|Define|Outline|Summarize|Justify|Illustrate).*?)(?:\n|$)',
+    ]
+    for pattern in essay_patterns:
+        matches = re.findall(pattern, text, re.IGNORECASE | re.MULTILINE)
+        questions.extend([q.strip() for q in matches if len(q.strip()) > 15 and q.strip() not in questions])
+    seen = set()
+    unique_questions = []
+    for q in questions:
+        if q.lower() not in seen:
+            seen.add(q.lower())
+            unique_questions.append(q)
+    return unique_questions[:50]
+
+def identify_topics_from_questions(questions):
+    topic_keywords = {
+        'Project Management': ['project', 'stakeholder', 'milestone', 'deliverable', 'gantt', 'wbs', 'scope', 'risk management'],
+        'Software Development': ['software', 'development', 'agile', 'scrum', 'waterfall', 'sprint', 'testing', 'debugging'],
+        'Database': ['database', 'sql', 'normalization', 'erd', 'query', 'table', 'index', 'transaction'],
+        'Programming': ['programming', 'code', 'algorithm', 'function', 'variable', 'class', 'object', 'inheritance'],
+        'Networking': ['network', 'protocol', 'tcp', 'ip', 'router', 'switch', 'firewall', 'dns'],
+        'Security': ['security', 'encryption', 'authentication', 'firewall', 'vulnerability', 'threat', 'attack'],
+        'Data Structures': ['data structure', 'array', 'linked list', 'tree', 'graph', 'stack', 'queue', 'hash'],
+        'Operating Systems': ['operating system', 'process', 'thread', 'memory', 'scheduling', 'deadlock'],
+        'Web Development': ['web', 'html', 'css', 'javascript', 'server', 'client', 'api', 'rest'],
+        'AI & Machine Learning': ['artificial intelligence', 'machine learning', 'neural', 'algorithm', 'training', 'model'],
+        'Requirements Engineering': ['requirement', 'specification', 'use case', 'user story', 'functional', 'non-functional'],
+        'System Design': ['system design', 'architecture', 'scalability', 'performance', 'component', 'module'],
+        'Testing': ['testing', 'unit test', 'integration', 'verification', 'validation', 'quality'],
+        'Object-Oriented': ['object-oriented', 'oop', 'encapsulation', 'polymorphism', 'abstraction'],
+    }
+    topic_counts = {}
+    for question in questions:
+        question_lower = question.lower()
+        for topic, keywords in topic_keywords.items():
+            matching_keywords = [kw for kw in keywords if kw in question_lower]
+            if matching_keywords:
+                if topic not in topic_counts:
+                    topic_counts[topic] = {'count': 0, 'keywords': set()}
+                topic_counts[topic]['count'] += 1
+                topic_counts[topic]['keywords'].update(matching_keywords)
+    sorted_topics = sorted(topic_counts.items(), key=lambda x: x[1]['count'], reverse=True)
+    return [
+        {
+            'topic': topic,
+            'frequency': data['count'],
+            'keywords': list(data['keywords']),
+            'importance': 'High' if data['count'] >= 3 else ('Medium' if data['count'] >= 2 else 'Low')
+        }
+        for topic, data in sorted_topics
+    ]
+
+def analyze_past_paper(file_path, filename):
+    file_type = filename.split('.')[-1].lower()
+    if file_type == 'pdf':
+        text = extract_text_from_pdf(file_path)
+    elif file_type in ['pptx', 'ppt']:
+        text = extract_text_from_pptx(file_path)
+    elif file_type == 'docx':
+        text = extract_text_from_docx(file_path)
+    elif file_type == 'txt':
+        text = extract_text_from_txt(file_path)
+    else:
+        text = extract_text_from_txt(file_path)
+    text = clean_text(text)
+    if not text or len(text.strip()) < 100:
+        return None
+    questions = extract_questions_from_text(text)
+    topics = identify_topics_from_questions(questions)
+    year_match = re.search(r'(20\d{2})', filename)
+    year = year_match.group(1) if year_match else "Unknown"
+    subject = filename.replace('.pdf', '').replace('.docx', '').replace('.txt', '')
+    subject = re.sub(r'\d{4}', '', subject).strip('_ -')
+    return {
+        'filename': filename,
+        'year': year,
+        'subject': subject,
+        'total_questions': len(questions),
+        'questions': questions[:10],
+        'topics': topics,
+        'analyzed_at': datetime.utcnow().isoformat()
+    }
+
+def get_aggregated_topic_rankings():
+    global past_paper_analysis
+    all_topics = {}
+    total_papers = len(past_paper_analysis)
+    for filename, analysis in past_paper_analysis.items():
+        for topic_data in analysis.get('topics', []):
+            topic_name = topic_data['topic']
+            if topic_name not in all_topics:
+                all_topics[topic_name] = {
+                    'topic': topic_name,
+                    'total_frequency': 0,
+                    'appearances': 0,
+                    'keywords': set(),
+                    'years': set()
+                }
+            all_topics[topic_name]['total_frequency'] += topic_data['frequency']
+            all_topics[topic_name]['appearances'] += 1
+            all_topics[topic_name]['keywords'].update(topic_data['keywords'])
+            all_topics[topic_name]['years'].add(analysis.get('year', 'Unknown'))
+    rankings = []
+    for topic, data in all_topics.items():
+        data['keywords'] = list(data['keywords'])
+        data['years'] = sorted(list(data['years']))
+        data['importance_score'] = (data['total_frequency'] * 0.6) + (data['appearances'] * 0.4)
+        data['importance'] = 'High' if data['importance_score'] >= 5 else ('Medium' if data['importance_score'] >= 3 else 'Low')
+        rankings.append(data)
+    rankings.sort(key=lambda x: x['importance_score'], reverse=True)
+    return {
+        'total_papers_analyzed': total_papers,
+        'total_questions_found': sum(len(analysis.get('questions', [])) for analysis in past_paper_analysis.values()),
+        'topic_rankings': rankings
+    }
+
 # ========== SHARED PROMPT-BUILDING LOGIC ==========
 
 def build_chat_context(user_message, session_id, length_control='medium', uploaded_context="", uploaded_filenames=None):
@@ -656,6 +789,20 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
                 doc_names = [hit.payload.get('filename', '') for hit in search_results if hit.payload.get('filename')]
                 sources = list(dict.fromkeys(doc_names))
         except Exception as e: print(f"Search error: {e}")
+
+    # Add past paper context
+    if past_paper_analysis and not is_casual:
+        past_paper_context = ""
+        query_lower = user_message.lower()
+        for filename, analysis in past_paper_analysis.items():
+            for topic_data in analysis.get('topics', []):
+                if any(kw in query_lower for kw in topic_data.get('keywords', [])):
+                    past_paper_context += f"\n📝 Past Paper Topic: {topic_data['topic']} (Importance: {topic_data['importance']}, Year: {analysis.get('year', 'Unknown')})\n"
+                    for q in analysis.get('questions', [])[:2]:
+                        if any(kw in q.lower() for kw in topic_data.get('keywords', [])):
+                            past_paper_context += f"   Sample Q: {q}\n"
+        if past_paper_context:
+            doc_context = past_paper_context + "\n" + doc_context
 
     if uploaded_context:
         doc_context = uploaded_context + "\n" + doc_context
@@ -903,6 +1050,100 @@ def upload_file():
         except Exception as e: failed.append({'name': file.filename, 'reason': str(e)})
     return jsonify({'success': True, 'uploaded': uploaded, 'failed': failed})
 
+# ========== PAST PAPER UPLOAD ==========
+
+@app.route('/admin/upload-past-paper', methods=['POST'])
+@admin_required
+def upload_past_paper():
+    global past_paper_analysis
+    if 'files' not in request.files:
+        return jsonify({'error': 'No files'}), 400
+    files = request.files.getlist('files')
+    results = {'uploaded': [], 'failed': []}
+    for file in files:
+        if not file.filename:
+            continue
+        try:
+            filename = secure_filename(file.filename)
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"past_paper_{uuid.uuid4()}_{filename}")
+            file.save(file_path)
+            analysis = analyze_past_paper(file_path, filename)
+            if analysis:
+                past_paper_analysis[filename] = analysis
+                results['uploaded'].append({
+                    'name': filename,
+                    'year': analysis['year'],
+                    'questions_found': analysis['total_questions'],
+                    'topics_found': len(analysis['topics'])
+                })
+            else:
+                results['failed'].append({'name': filename, 'reason': 'Could not extract sufficient text'})
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        except Exception as e:
+            results['failed'].append({'name': file.filename, 'reason': str(e)})
+    return jsonify({
+        'success': True,
+        'results': results,
+        'total_papers_analyzed': len(past_paper_analysis)
+    })
+
+# ========== PAST PAPER API ==========
+
+@app.route('/api/past-papers/rankings', methods=['GET'])
+@login_required
+def get_topic_rankings():
+    rankings = get_aggregated_topic_rankings()
+    return jsonify({'success': True, 'rankings': rankings})
+
+@app.route('/api/past-papers/list', methods=['GET'])
+@login_required
+def list_past_papers():
+    papers = []
+    for filename, analysis in past_paper_analysis.items():
+        papers.append({
+            'filename': filename,
+            'year': analysis.get('year', 'Unknown'),
+            'subject': analysis.get('subject', 'General'),
+            'questions_count': analysis.get('total_questions', 0),
+            'topics_count': len(analysis.get('topics', [])),
+            'analyzed_at': analysis.get('analyzed_at', '')
+        })
+    return jsonify({'success': True, 'papers': sorted(papers, key=lambda x: x['year'], reverse=True)})
+
+@app.route('/api/past-papers/search', methods=['POST'])
+@login_required
+def search_past_papers():
+    data = request.json or {}
+    query = data.get('query', '').strip().lower()
+    if not query:
+        return jsonify({'success': False, 'message': 'No query provided'}), 400
+    relevant_questions = []
+    relevant_topics = []
+    for filename, analysis in past_paper_analysis.items():
+        for question in analysis.get('questions', []):
+            if query in question.lower():
+                relevant_questions.append({
+                    'question': question,
+                    'paper': filename,
+                    'year': analysis.get('year', 'Unknown')
+                })
+        for topic_data in analysis.get('topics', []):
+            if query in topic_data['topic'].lower() or any(query in kw.lower() for kw in topic_data.get('keywords', [])):
+                relevant_topics.append({
+                    'topic': topic_data['topic'],
+                    'frequency': topic_data['frequency'],
+                    'importance': topic_data['importance'],
+                    'paper': filename,
+                    'year': analysis.get('year', 'Unknown')
+                })
+    return jsonify({
+        'success': True,
+        'query': query,
+        'related_questions': relevant_questions[:10],
+        'related_topics': relevant_topics[:5]
+    })
+
 @app.route('/chat', methods=['POST'])
 @login_required
 def chat():
@@ -1134,7 +1375,7 @@ def generate_summary():
         print(f"Summary error: {e}")
         return jsonify({'error': 'An internal error occurred.'}), 500
 
-# ========== SMART STUDY PLAN GENERATOR (FIXED) ==========
+# ========== SMART STUDY PLAN GENERATOR ==========
 
 @app.route('/generate-study-plan', methods=['POST'])
 @login_required
@@ -1186,6 +1427,15 @@ def generate_study_plan():
         
         num_weeks = max(1, min(12, (days_until_exam + 6) // 7))
         
+        # Add past paper insights to the prompt
+        past_paper_insights = ""
+        if past_paper_analysis:
+            rankings = get_aggregated_topic_rankings()
+            if rankings['topic_rankings']:
+                past_paper_insights = "\n📊 Past Paper Topic Rankings (most important first):\n"
+                for i, topic in enumerate(rankings['topic_rankings'][:5]):
+                    past_paper_insights += f"  {i+1}. {topic['topic']} (Importance: {topic['importance']}, Frequency: {topic['total_frequency']})\n"
+        
         system_prompt = f"""You are an expert academic planner. Create a detailed, personalized study plan.
 IMPORTANT: Respond ONLY with a valid JSON object. Do NOT wrap it in markdown code blocks.
 Do NOT include any text before or after the JSON.
@@ -1225,6 +1475,7 @@ Make the plan practical and achievable."""
 📄 Notes Found: {content_summary}
 Total Content: {total_content_volume} words
 Number of Weeks: {num_weeks}
+{past_paper_insights}
 
 Create a realistic weekly plan for exactly {num_weeks} weeks."""
         
@@ -1312,7 +1563,6 @@ Create a realistic weekly plan for exactly {num_weeks} weeks."""
                         }
                     })
             
-            # Handle nested JSON in overview field
             if isinstance(study_plan.get('overview'), str) and study_plan['overview'].strip().startswith('{'):
                 try:
                     nested_json = json.loads(study_plan['overview'])
@@ -1392,7 +1642,7 @@ def check_status():
         'status': 'online', 'documents_available': doc_count > 0, 'document_count': doc_count,
         'api_connected': gemini_connected or groq_connected, 'qdrant_connected': qdrant_client is not None,
         'user_system': users_collection is not None, 'total_users': user_count,
-        'features': ['persistent_memory', 'streaming', 'follow_up', 'flashcards', 'summaries', 'sentiment', 'suggestions', 'export', 'study_plan']
+        'features': ['persistent_memory', 'streaming', 'follow_up', 'flashcards', 'summaries', 'sentiment', 'suggestions', 'export', 'study_plan', 'past_papers']
     })
 
 @app.route('/admin/documents', methods=['GET'])
@@ -1430,7 +1680,8 @@ def get_admin_stats():
         try: doc_count = qdrant_client.get_collection("university_notes").points_count
         except: pass
     user_count = safe_mongo_count(users_collection)
-    return jsonify({'success': True, 'total_documents': doc_count, 'total_chunks': doc_count, 'total_users': user_count})
+    past_paper_count = len(past_paper_analysis)
+    return jsonify({'success': True, 'total_documents': doc_count, 'total_chunks': doc_count, 'total_users': user_count, 'past_papers_analyzed': past_paper_count})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 7860))
@@ -1448,6 +1699,7 @@ if __name__ == '__main__':
     print(f"🃏 Flashcards: /generate-flashcards")
     print(f"📝 Summaries: /generate-summary")
     print(f"📅 Study Plan: /generate-study-plan")
+    print(f"📄 Past Papers: /api/past-papers/rankings")
     print(f"🔍 Web Search: DuckDuckGo + Wikipedia + AnySearch")
     print(f"🌐 http://0.0.0.0:{port}/")
     print("="*60 + "\n")

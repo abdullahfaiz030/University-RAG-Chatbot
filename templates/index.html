@@ -13,24 +13,18 @@
 
 <body>
     <div class="app-container">
-        <!-- ========== SIDEBAR (Chat History) ========== -->
+        <!-- ========== SIDEBAR ========== -->
         <div class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <h3><i class="fas fa-history"></i> Chat History</h3>
-                <button class="new-chat-sidebar-btn" onclick="createNewSession()" title="New Chat">
-                    <i class="fas fa-plus"></i> New
-                </button>
+                <button class="new-chat-sidebar-btn" onclick="createNewSession()" title="New Chat"><i
+                        class="fas fa-plus"></i> New</button>
             </div>
-            <div class="sessions-list" id="sessionsList">
-                <!-- Loaded dynamically from JS -->
-            </div>
+            <div class="sessions-list" id="sessionsList"></div>
             <div class="sidebar-footer">
-                <button class="clear-history-btn" onclick="clearAllSessions()" title="Clear All History">
-                    <i class="fas fa-trash-alt"></i> Clear History
-                </button>
-                <a href="/logout" class="logout-sidebar-btn">
-                    <i class="fas fa-sign-out-alt"></i> Logout
-                </a>
+                <button class="clear-history-btn" onclick="clearAllSessions()" title="Clear All History"><i
+                        class="fas fa-trash-alt"></i> Clear History</button>
+                <a href="/logout" class="logout-sidebar-btn"><i class="fas fa-sign-out-alt"></i> Logout</a>
             </div>
         </div>
 
@@ -38,113 +32,83 @@
         <div class="chat-container">
             <!-- ========== HEADER ========== -->
             <div class="chat-header">
-                <button class="sidebar-toggle-btn" id="sidebarToggle" onclick="toggleSidebar()" title="Toggle Sidebar">
-                    <i class="fas fa-bars"></i>
-                </button>
+                <button class="sidebar-toggle-btn" id="sidebarToggle" onclick="toggleSidebar()"
+                    title="Toggle Sidebar"><i class="fas fa-bars"></i></button>
                 <div class="bot-info">
-                    <div class="bot-avatar">
-                        <img src="{{ url_for('static', filename='university_logo.png') }}" alt="University Logo">
-                    </div>
+                    <div class="bot-avatar"><img src="{{ url_for('static', filename='university_logo.png') }}"
+                            alt="University Logo"></div>
                     <div class="bot-details">
                         <h2>AI Learning Assistant</h2>
+                        <div class="status-indicator"><span class="status-dot"></span><span
+                                class="status-text">Online</span><span class="doc-status"
+                                id="docStatus">Checking...</span></div>
                     </div>
                 </div>
                 <div class="header-actions">
-                    <!-- Length Control -->
                     <select id="lengthSelect" class="length-select" title="Response Length">
                         <option value="medium">📏 Medium</option>
                         <option value="short">⚡ Short</option>
                         <option value="detailed">📚 Detailed</option>
                     </select>
-
-                    <!-- Export Chat -->
-                    <button class="export-btn-header" onclick="exportCurrentChat()" title="Export Chat">
-                        <i class="fas fa-download"></i>
-                    </button>
-
-                    <!-- Voice Output Toggle -->
-                    <button class="voice-output-toggle active" id="voiceOutputToggle" onclick="toggleVoiceOutput()"
-                        title="Toggle Voice Output">
-                        <i class="fas fa-volume-up"></i>
-                    </button>
-
-                    <!-- Logout Button -->
-                    <a href="/logout" class="logout-header-btn" title="Logout">
-                        <i class="fas fa-sign-out-alt"></i>
-                    </a>
-
-                    <!-- New Chat -->
-                    <button class="new-chat-btn" onclick="createNewSession()" title="New Conversation">
-                        <i class="fas fa-plus"></i>
-                    </button>
+                    <button class="export-btn-header" onclick="exportCurrentChat()" title="Export Chat"><i
+                            class="fas fa-download"></i></button>
+                    <a href="/logout" class="logout-header-btn" title="Logout"><i class="fas fa-sign-out-alt"></i></a>
+                    <button class="new-chat-btn" onclick="createNewSession()" title="New Conversation"><i
+                            class="fas fa-plus"></i></button>
                 </div>
             </div>
 
             <!-- ========== TABS NAVIGATION ========== -->
             <div class="chat-tabs">
-                <button class="tab-btn active" id="tabBtnChat" onclick="switchTab('chat')">
-                    <i class="fas fa-comment-dots"></i> Chat Assistant
-                </button>
-                <button class="tab-btn" id="tabBtnFlashcards" onclick="switchTab('flashcards')">
-                    <i class="fas fa-clone"></i> Study Flashcards
-                </button>
-                <button class="tab-btn" id="tabBtnStudyPlan" onclick="switchTab('studyplan')">
-                    <i class="fas fa-calendar-check"></i> Study Plan
-                </button>
+                <button class="tab-btn active" id="tabBtnChat" onclick="switchTab('chat')"><i
+                        class="fas fa-comment-dots"></i> Chat Assistant</button>
+                <button class="tab-btn" id="tabBtnFlashcards" onclick="switchTab('flashcards')"><i
+                        class="fas fa-clone"></i> Study Flashcards</button>
+                <button class="tab-btn" id="tabBtnStudyPlan" onclick="switchTab('studyplan')"><i
+                        class="fas fa-calendar-check"></i> Study Plan</button>
+                <button class="tab-btn" id="tabBtnPastPapers" onclick="switchTab('pastpapers')"><i
+                        class="fas fa-file-alt"></i> Past Papers</button>
             </div>
 
             <!-- ========== CHAT SECTION ========== -->
             <div class="tab-section active" id="chatSection">
                 <div class="chat-messages" id="chatMessages">
                     <div class="welcome-message">
-                        <div class="welcome-icon">
-                            <i class="fas fa-graduation-cap"></i>
-                        </div>
+                        <div class="welcome-icon"><i class="fas fa-graduation-cap"></i></div>
                         <h3>Welcome to Your AI Study Assistant! 👋</h3>
                         <p>I'm here to help you understand your course materials. Ask me anything about your lecture
                             notes, and I'll give you clear, simple answers.</p>
                         <div class="suggestion-chips">
-                            <button onclick="sendSuggestion('What is a project?')" class="chip">
-                                <i class="fas fa-bullseye"></i> What is a project?
-                            </button>
+                            <button onclick="sendSuggestion('What is a project?')" class="chip"><i
+                                    class="fas fa-bullseye"></i> What is a project?</button>
                             <button onclick="sendSuggestion('Explain the factors affecting software development')"
-                                class="chip">
-                                <i class="fas fa-code"></i> Software development
-                            </button>
+                                class="chip"><i class="fas fa-code"></i> Software development</button>
                             <button onclick="sendSuggestion('What are the key topics covered in the lectures?')"
-                                class="chip">
-                                <i class="fas fa-book-open"></i> Key topics
-                            </button>
-                            <button onclick="sendSuggestion('Help me understand project stakeholders')" class="chip">
-                                <i class="fas fa-users"></i> Project stakeholders
-                            </button>
+                                class="chip"><i class="fas fa-book-open"></i> Key topics</button>
+                            <button onclick="sendSuggestion('Help me understand project stakeholders')" class="chip"><i
+                                    class="fas fa-users"></i> Project stakeholders</button>
                         </div>
                     </div>
                 </div>
-
                 <div class="chat-input-area">
                     <div class="input-wrapper">
                         <textarea id="userInput" placeholder="Ask me anything about your course materials..." rows="1"
                             onkeydown="handleKeyDown(event)"></textarea>
-                        <button class="mic-btn" id="micBtn" onclick="toggleVoiceInput()" title="Voice Input">
-                            <i class="fas fa-microphone"></i>
-                        </button>
-                        <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Send message">
-                            <i class="fas fa-paper-plane"></i>
-                        </button>
+                        <button class="mic-btn" id="voiceBtn" onclick="toggleVoiceInput()" title="Voice Input"><i
+                                class="fas fa-microphone"></i></button>
+                        <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Send message"><i
+                                class="fas fa-paper-plane"></i></button>
                     </div>
                 </div>
             </div>
 
             <!-- ========== FLASHCARDS SECTION ========== -->
-            <div class="tab-section" id="flashcardsSection" style="display: none;">
+            <div class="tab-section" id="flashcardsSection" style="display:none;">
                 <div class="flashcards-bar">
                     <input type="text" id="flashcardTopic" placeholder="Topic for flash cards...">
-                    <button class="generate-cards-btn" onclick="generateFlashcards()">
-                        <i class="fas fa-bolt"></i> Generate Deck
-                    </button>
+                    <button class="generate-cards-btn" onclick="generateFlashcards()"><i class="fas fa-bolt"></i>
+                        Generate Deck</button>
                 </div>
-
                 <div class="flashcard-viewport">
                     <div class="flashcard-card-container">
                         <div class="flashcard-card" id="flashcardCard" onclick="flipCard()">
@@ -164,99 +128,118 @@
                         </div>
                     </div>
                 </div>
-
                 <div class="flashcard-controls">
-                    <button class="control-btn" onclick="prevCard()" id="prevCardBtn" disabled>
-                        <i class="fas fa-chevron-left"></i> Previous
-                    </button>
-                    <div class="card-indicator">
-                        <span id="cardCounter">Card 0 of 0</span>
-                    </div>
-                    <button class="control-btn" onclick="nextCard()" id="nextCardBtn" disabled>
-                        Next <i class="fas fa-chevron-right"></i>
-                    </button>
+                    <button class="control-btn" onclick="prevCard()" id="prevCardBtn" disabled><i
+                            class="fas fa-chevron-left"></i> Previous</button>
+                    <div class="card-indicator"><span id="cardCounter">Card 0 of 0</span></div>
+                    <button class="control-btn" onclick="nextCard()" id="nextCardBtn" disabled>Next <i
+                            class="fas fa-chevron-right"></i></button>
                 </div>
-
                 <div class="flashcard-progress-container">
-                    <div class="flashcard-progress-bar" id="flashcardProgressBar" style="width: 0%;"></div>
+                    <div class="flashcard-progress-bar" id="flashcardProgressBar" style="width:0%;"></div>
                 </div>
             </div>
 
             <!-- ========== STUDY PLAN SECTION ========== -->
-            <div class="tab-section" id="studyplanSection" style="display: none;">
-                <div class="studyplan-container" style="flex:1; overflow-y:auto; padding:24px;">
-                    <!-- Input Form -->
+            <div class="tab-section" id="studyplanSection" style="display:none;">
+                <div class="studyplan-container" style="flex:1;overflow-y:auto;padding:24px;">
                     <div class="studyplan-form"
-                        style="background:var(--surface); border:1.5px solid #dbeafe; border-radius:16px; padding:24px; margin-bottom:20px;">
-                        <h3 style="font-size:18px; font-weight:700; color:var(--text); margin-bottom:16px;">
-                            <i class="fas fa-calendar-check" style="color:var(--primary);"></i> Create Your Study Plan
+                        style="background:var(--surface);border:1.5px solid #dbeafe;border-radius:16px;padding:24px;margin-bottom:20px;">
+                        <h3 style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:16px;"><i
+                                class="fas fa-calendar-check" style="color:var(--primary);"></i> Create Your Study Plan
                         </h3>
-                        <div style="display:grid; gap:16px;">
-                            <div>
-                                <label
-                                    style="font-size:13px; font-weight:600; color:var(--text-secondary); display:block; margin-bottom:6px;">📅
-                                    Exam Date</label>
-                                <input type="date" id="studyExamDate"
-                                    style="width:100%; padding:10px 14px; background:var(--surface-light); border:1.5px solid var(--border); border-radius:10px; color:var(--text); font-size:14px; outline:none;">
+                        <div style="display:grid;gap:16px;">
+                            <div><label
+                                    style="font-size:13px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px;">📅
+                                    Exam Date</label><input type="date" id="studyExamDate"
+                                    style="width:100%;padding:10px 14px;background:var(--surface-light);border:1.5px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;outline:none;">
                             </div>
-                            <div>
-                                <label
-                                    style="font-size:13px; font-weight:600; color:var(--text-secondary); display:block; margin-bottom:6px;">📚
-                                    Subjects (comma-separated)</label>
-                                <input type="text" id="studySubjects"
-                                    placeholder="e.g., Software Engineering, Database Systems, Data Structures"
-                                    style="width:100%; padding:10px 14px; background:var(--surface-light); border:1.5px solid var(--border); border-radius:10px; color:var(--text); font-size:14px; outline:none;">
+                            <div><label
+                                    style="font-size:13px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px;">📚
+                                    Subjects</label><input type="text" id="studySubjects"
+                                    placeholder="e.g., Software Engineering, Database Systems"
+                                    style="width:100%;padding:10px 14px;background:var(--surface-light);border:1.5px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;outline:none;">
                             </div>
-                            <div>
-                                <label
-                                    style="font-size:13px; font-weight:600; color:var(--text-secondary); display:block; margin-bottom:6px;">⏰
-                                    Study Hours Per Day</label>
-                                <select id="studyHours"
-                                    style="width:100%; padding:10px 14px; background:var(--surface-light); border:1.5px solid var(--border); border-radius:10px; color:var(--text); font-size:14px; outline:none;">
+                            <div><label
+                                    style="font-size:13px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px;">⏰
+                                    Study Hours Per Day</label><select id="studyHours"
+                                    style="width:100%;padding:10px 14px;background:var(--surface-light);border:1.5px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;outline:none;">
                                     <option value="2">2 hours</option>
                                     <option value="3">3 hours</option>
                                     <option value="4" selected>4 hours</option>
                                     <option value="5">5 hours</option>
                                     <option value="6">6 hours</option>
                                     <option value="8">8 hours</option>
-                                </select>
-                            </div>
+                                </select></div>
                             <button onclick="generateStudyPlan()" id="generatePlanBtn"
-                                style="width:100%; padding:12px; background:linear-gradient(135deg,#1d4ed8,#1e40af); border:none; color:white; border-radius:50px; font-size:14px; font-weight:700; cursor:pointer; transition:all 0.3s;">
-                                <i class="fas fa-magic"></i> Generate Study Plan
-                            </button>
+                                style="width:100%;padding:12px;background:linear-gradient(135deg,#1d4ed8,#1e40af);border:none;color:white;border-radius:50px;font-size:14px;font-weight:700;cursor:pointer;"><i
+                                    class="fas fa-magic"></i> Generate Study Plan</button>
                         </div>
                     </div>
-
-                    <!-- Results Area -->
                     <div id="studyPlanResult" style="display:none;">
-                        <!-- Overview -->
                         <div id="planOverview"
-                            style="background:linear-gradient(135deg,#dbeafe,#e0f2fe); border-radius:16px; padding:20px; margin-bottom:16px; border:1.5px solid #bfdbfe;">
+                            style="background:linear-gradient(135deg,#dbeafe,#e0f2fe);border-radius:16px;padding:20px;margin-bottom:16px;border:1.5px solid #bfdbfe;">
                         </div>
-                        <!-- Subjects Breakdown -->
-                        <div id="planSubjects" style="display:grid; gap:12px; margin-bottom:16px;"></div>
-                        <!-- Weekly Plan -->
+                        <div id="planSubjects" style="display:grid;gap:12px;margin-bottom:16px;"></div>
                         <div id="planWeekly"
-                            style="background:var(--surface); border:1.5px solid #dbeafe; border-radius:16px; padding:20px; margin-bottom:16px;">
+                            style="background:var(--surface);border:1.5px solid #dbeafe;border-radius:16px;padding:20px;margin-bottom:16px;">
                         </div>
-                        <!-- Daily Schedule -->
                         <div id="planDaily"
-                            style="background:var(--surface); border:1.5px solid #dbeafe; border-radius:16px; padding:20px; margin-bottom:16px;">
+                            style="background:var(--surface);border:1.5px solid #dbeafe;border-radius:16px;padding:20px;margin-bottom:16px;">
                         </div>
-                        <!-- Tips -->
-                        <div id="planTips" style="display:grid; grid-template-columns:1fr 1fr; gap:12px;"></div>
+                        <div id="planTips" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ========== PAST PAPERS SECTION ========== -->
+            <div class="tab-section" id="pastpapersSection" style="display:none;">
+                <div class="studyplan-container" style="flex:1;overflow-y:auto;padding:24px;">
+                    <div
+                        style="background:var(--surface);border:1.5px solid #dbeafe;border-radius:16px;padding:24px;margin-bottom:20px;">
+                        <h3 style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:16px;"><i
+                                class="fas fa-search" style="color:var(--primary);"></i> Search Past Papers</h3>
+                        <div style="display:flex;gap:12px;">
+                            <input type="text" id="pastPaperSearch"
+                                placeholder="Search topics or questions from past papers..."
+                                style="flex:1;padding:10px 14px;background:var(--surface-light);border:1.5px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;outline:none;">
+                            <button onclick="searchPastPapers()" id="searchPastPaperBtn"
+                                style="padding:10px 24px;background:linear-gradient(135deg,#1d4ed8,#1e40af);border:none;color:white;border-radius:50px;font-size:14px;font-weight:600;cursor:pointer;"><i
+                                    class="fas fa-search"></i> Search</button>
+                        </div>
+                    </div>
+                    <div id="topicRankingsSection" style="margin-bottom:20px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                            <h3 style="font-size:18px;font-weight:700;color:var(--text);"><i class="fas fa-trophy"
+                                    style="color:#f59e0b;"></i> Topic Importance Rankings</h3>
+                            <button onclick="loadTopicRankings()" id="refreshRankingsBtn"
+                                style="padding:8px 16px;background:var(--surface-light);border:1.5px solid var(--border);border-radius:50px;font-size:13px;cursor:pointer;color:var(--text-secondary);"><i
+                                    class="fas fa-sync-alt"></i> Refresh</button>
+                        </div>
+                        <div id="topicRankingsList" style="display:grid;gap:12px;">
+                            <p style="color:var(--text-secondary);text-align:center;padding:40px;">Click Refresh to load
+                                topic rankings from past papers.</p>
+                        </div>
+                    </div>
+                    <div id="pastPapersListSection">
+                        <h3 style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:16px;"><i
+                                class="fas fa-folder-open" style="color:var(--primary);"></i> Analyzed Papers</h3>
+                        <div id="pastPapersList" style="display:grid;gap:8px;">
+                            <p style="color:var(--text-secondary);text-align:center;padding:20px;">No past papers
+                                analyzed yet. Upload from admin panel.</p>
+                        </div>
+                    </div>
+                    <div id="pastPaperSearchResults" style="display:none;">
+                        <h3 style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:16px;"><i
+                                class="fas fa-list" style="color:var(--success);"></i> Search Results</h3>
+                        <div id="searchResultsContent"></div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Admin Link -->
-    <a href="/admin" class="admin-link" title="Admin Panel">
-        <i class="fas fa-cog"></i>
-    </a>
-
+    <a href="/admin" class="admin-link" title="Admin Panel"><i class="fas fa-cog"></i></a>
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 
