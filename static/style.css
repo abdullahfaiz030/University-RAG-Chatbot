@@ -1982,7 +1982,8 @@ li {
     /* Form input zoom prevention override */
     .studyplan-form input,
     .studyplan-form select,
-    #pastpapersSection input {
+    #pastpapersSection input,
+    #summariesSection input {
         font-size: 16px !important;
     }
 }

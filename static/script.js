@@ -1015,15 +1015,28 @@ function switchTab(tabName) {
     if (tabName === currentTab) return;
     currentTab = tabName;
     document.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.remove('active'); });
-    var tabMap = { 'chat': 'tabBtnChat', 'flashcards': 'tabBtnFlashcards', 'studyplan': 'tabBtnStudyPlan', 'pastpapers': 'tabBtnPastPapers' };
+    var tabMap = { 
+        'chat': 'tabBtnChat', 
+        'flashcards': 'tabBtnFlashcards', 
+        'studyplan': 'tabBtnStudyPlan', 
+        'pastpapers': 'tabBtnPastPapers',
+        'summaries': 'tabBtnSummaries'
+    };
     if (tabMap[tabName]) document.getElementById(tabMap[tabName]).classList.add('active');
     document.querySelectorAll('.tab-section').forEach(function (s) { s.classList.remove('active'); s.style.display = 'none'; });
-    var secMap = { 'chat': 'chatSection', 'flashcards': 'flashcardsSection', 'studyplan': 'studyplanSection', 'pastpapers': 'pastpapersSection' };
+    var secMap = { 
+        'chat': 'chatSection', 
+        'flashcards': 'flashcardsSection', 
+        'studyplan': 'studyplanSection', 
+        'pastpapers': 'pastpapersSection',
+        'summaries': 'summariesSection'
+    };
     var sec = document.getElementById(secMap[tabName]);
     if (sec) { sec.classList.add('active'); sec.style.display = 'flex'; }
     if (tabName === 'chat') userInput.focus();
     else if (tabName === 'flashcards') document.getElementById('flashcardTopic').focus();
     else if (tabName === 'pastpapers') { loadTopicRankings(); loadPastPapersList(); }
+    else if (tabName === 'summaries') document.getElementById('summaryTopic').focus();
 }
 
 async function generateFlashcards() {
@@ -1285,4 +1298,62 @@ async function loadPastPapersList() {
             document.getElementById('pastPapersList').innerHTML = html;
         }
     } catch (error) { console.error('Error loading papers list:', error); }
+}
+
+// ========== CHAPTER SUMMARIES ==========
+var isGeneratingSummary = false;
+
+async function generateSummary() {
+    if (isGeneratingSummary) return;
+    var topic = document.getElementById('summaryTopic').value.trim();
+    if (!topic) {
+        showToast('Please enter a chapter topic or title');
+        return;
+    }
+    
+    var btn = document.getElementById('generateSummaryBtn');
+    var resultDiv = document.getElementById('summaryResult');
+    var resultContent = document.getElementById('summaryResultContent');
+    
+    isGeneratingSummary = true;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating Summary...';
+    resultDiv.style.display = 'block';
+    resultContent.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-secondary);"><i class="fas fa-spinner fa-spin" style="font-size:24px;margin-bottom:10px;display:block;"></i>Analyzing documents and writing summary...</div>';
+    
+    try {
+        var res = await fetch('/generate-summary', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ topic: topic })
+        });
+        var data = await res.json();
+        if (data.success && data.summary) {
+            resultContent.innerHTML = formatMessage(data.summary);
+            resultDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } else {
+            resultContent.innerHTML = '<div style="color:#ef4444;text-align:center;padding:20px;"><i class="fas fa-exclamation-circle"></i> ' + (data.error || 'Failed to generate summary.') + '</div>';
+        }
+    } catch (e) {
+        resultContent.innerHTML = '<div style="color:#ef4444;text-align:center;padding:20px;"><i class="fas fa-exclamation-circle"></i> Connection error. Please try again.</div>';
+    } finally {
+        isGeneratingSummary = false;
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-magic"></i> Generate Summary';
+    }
+}
+
+function copySummaryText() {
+    var contentDiv = document.getElementById('summaryResultContent');
+    if (!contentDiv) return;
+    var text = contentDiv.textContent || contentDiv.innerText;
+    if (!text || text.includes('Analyzing documents') || text.includes('Connection error')) {
+        showToast('No summary content to copy');
+        return;
+    }
+    navigator.clipboard.writeText(text).then(function() {
+        showToast('Summary copied to clipboard!');
+    }).catch(function() {
+        showToast('Failed to copy');
+    });
 }

@@ -71,6 +71,8 @@
                         class="fas fa-calendar-check"></i> Study Plan</button>
                 <button class="tab-btn" id="tabBtnPastPapers" onclick="switchTab('pastpapers')"><i
                         class="fas fa-file-alt"></i> Past Papers</button>
+                <button class="tab-btn" id="tabBtnSummaries" onclick="switchTab('summaries')"><i
+                        class="fas fa-file-signature"></i> Chapter Summaries</button>
             </div>
 
             <!-- ========== CHAT SECTION ========== -->
@@ -236,6 +238,36 @@
                         <h3 style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:16px;"><i
                                 class="fas fa-list" style="color:var(--success);"></i> Search Results</h3>
                         <div id="searchResultsContent"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ========== CHAPTER SUMMARIES SECTION ========== -->
+            <div class="tab-section" id="summariesSection" style="display:none;">
+                <div class="studyplan-container" style="flex:1;overflow-y:auto;padding:24px;">
+                    <div class="studyplan-form"
+                        style="background:var(--surface);border:1.5px solid #dbeafe;border-radius:16px;padding:24px;margin-bottom:20px;">
+                        <h3 style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:16px;"><i
+                                class="fas fa-file-signature" style="color:var(--primary);"></i> Generate Chapter Summary</h3>
+                        <div style="display:grid;gap:16px;">
+                            <div>
+                                <label style="font-size:13px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px;">📖 Chapter Title / Topic</label>
+                                <input type="text" id="summaryTopic" placeholder="e.g., Software Development Lifecycle, Project Risk Management"
+                                    style="width:100%;padding:10px 14px;background:var(--surface-light);border:1.5px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;outline:none;">
+                            </div>
+                            <button onclick="generateSummary()" id="generateSummaryBtn"
+                                style="width:100%;padding:12px;background:linear-gradient(135deg,#1d4ed8,#1e40af);border:none;color:white;border-radius:50px;font-size:14px;font-weight:700;cursor:pointer;"><i
+                                    class="fas fa-magic"></i> Generate Summary</button>
+                        </div>
+                    </div>
+                    <div id="summaryResult" style="display:none;background:var(--surface);border:1.5px solid #dbeafe;border-radius:16px;padding:24px;position:relative;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid #dbeafe;padding-bottom:12px;">
+                            <h4 style="font-size:16px;font-weight:700;color:var(--text);"><i class="fas fa-align-left" style="color:var(--primary);"></i> Generated Summary</h4>
+                            <div style="display:flex;gap:8px;">
+                                <button onclick="copySummaryText()" class="action-btn" style="padding:6px 12px;background:var(--surface-light);border:1.5px solid var(--border);border-radius:50px;font-size:12px;cursor:pointer;color:var(--text-secondary);display:flex;align-items:center;gap:6px;"><i class="far fa-copy"></i> Copy</button>
+                            </div>
+                        </div>
+                        <div id="summaryResultContent" style="color:var(--text);line-height:1.75;font-size:14px;min-height:100px;"></div>
                     </div>
                 </div>
             </div>
