@@ -851,6 +851,15 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
     else:
         system_prompt += " Keep response to a medium length (2-4 sentences max)."; max_tokens = 250
 
+    wants_chart = any(w in user_lower for w in ['chart', 'graph', 'plot', 'statistics', 'stats', 'compare', 'comparison', 'data table', 'trend'])
+    if wants_chart and not is_casual:
+        system_prompt += (
+            " If the user asks for comparison, statistics, or trends, format the numeric data as an interactive chart at the end of your message in this exact format: "
+            "[CHART: {\"type\": \"bar\", \"title\": \"Chart Title\", \"labels\": [\"Label1\", \"Label2\"], \"data\": [10, 20]}]. "
+            "Support chart types: 'bar', 'line', 'pie', 'doughnut'. Keep labels short and data values simple integers/numbers."
+        )
+        max_tokens = max(max_tokens, 600)
+
     return {
         'system_prompt': system_prompt, 'user_prompt': user_prompt, 'max_tokens': max_tokens,
         'mode': 'followup' if is_follow_up else ('realtime' if web_results else ('study' if doc_context else 'general')),
@@ -860,8 +869,6 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
 
 def postprocess_response(text, ctx):
     if not text: return "How can I help you today?"
-    text = re.sub(r'\*{1,3}', '', text)
-    text = re.sub(r'#{1,4}\s*', '', text)
     text = text.strip()
     if ctx['is_greeting'] and (len(text) < 2 or len(text) > 60):
         text = "Hey there! 👋 How can I help you today?"

@@ -210,12 +210,12 @@ function loadSessionMessages(id) {
         startNewChat();
     } else {
         session.messages.forEach(function (msg) {
-            addMessageToUi(msg.role === 'assistant' ? 'bot' : 'user', msg.content, msg.sources, msg.chart_data, msg.news_results, false);
+            addMessageToUi(msg.role === 'assistant' ? 'bot' : 'user', msg.content, msg.sources, msg.chart_data, msg.news_results, false, msg.sentiment);
         });
     }
 }
 
-async function saveMessageToHistory(role, content, sources, chartData, newsResults) {
+async function saveMessageToHistory(role, content, sources, chartData, newsResults, sentiment) {
     var session = chatSessions.find(function (s) { return s.id === sessionId; });
     if (session) {
         if (session.messages.length === 0 && role === 'user') {
@@ -231,7 +231,7 @@ async function saveMessageToHistory(role, content, sources, chartData, newsResul
                 console.error('Failed to sync session title:', error);
             }
         }
-        session.messages.push({ role: role, content: content, sources: sources, chart_data: chartData, news_results: newsResults });
+        session.messages.push({ role: role, content: content, sources: sources, chart_data: chartData, news_results: newsResults, sentiment: sentiment });
         saveSessionsToStorage();
     }
 }
@@ -278,18 +278,20 @@ async function clearAllSessions() {
 
 // ========== INITIALIZATION ==========
 
-document.addEventListener('DOMContentLoaded', function () {
+let isAppInitialized = false;
+
+function initializeApp() {
+    if (isAppInitialized) return;
+    isAppInitialized = true;
     initSpeechRecognition();
     loadSessionsFromStorage();
     checkSystemStatus();
-});
+}
+
+document.addEventListener('DOMContentLoaded', initializeApp);
 
 if (document.readyState === 'complete' || document.readyState === 'interactive') {
-    setTimeout(function () {
-        initSpeechRecognition();
-        loadSessionsFromStorage();
-        checkSystemStatus();
-    }, 100);
+    setTimeout(initializeApp, 100);
 }
 
 // ========== SPEECH RECOGNITION ==========
@@ -613,7 +615,7 @@ async function sendMessage() {
         }
         if (assistantDiv) {
             finalizeBotMessage(assistantDiv, doneMeta || {});
-            saveMessageToHistory('assistant', fullText, doneMeta ? doneMeta.sources : null);
+            saveMessageToHistory('assistant', fullText, doneMeta ? doneMeta.sources : null, null, null, doneMeta ? doneMeta.sentiment : null);
         } else {
             removeTypingIndicator(typingId);
             addMessage('bot', 'Sorry, an error occurred.');
@@ -622,7 +624,7 @@ async function sendMessage() {
         removeTypingIndicator(typingId);
         if (assistantDiv && textEl && fullText) {
             finalizeBotMessage(assistantDiv, doneMeta || {});
-            saveMessageToHistory('assistant', fullText, doneMeta ? doneMeta.sources : null);
+            saveMessageToHistory('assistant', fullText, doneMeta ? doneMeta.sources : null, null, null, doneMeta ? doneMeta.sentiment : null);
         } else {
             addMessage('bot', '⚠️ Connection error.');
         }
@@ -659,7 +661,7 @@ function createBotMessageShell() {
     return messageDiv;
 }
 
-function finalizeBotMessage(messageDiv, meta) {
+function finalizeBotMessage(messageDiv, meta, rawText) {
     var bubble = messageDiv.querySelector('.message-bubble');
     var metaContainer = bubble.querySelector('.message-meta');
 
@@ -683,21 +685,125 @@ function finalizeBotMessage(messageDiv, meta) {
         });
         bubble.appendChild(row);
     }
+
+    // Dynamic Sentiment Badge
+    if (meta.sentiment && meta.sentiment !== 'neutral') {
+        var sentimentEmoji = '';
+        var sentimentText = '';
+        if (meta.sentiment === 'positive') { sentimentEmoji = '😊'; sentimentText = 'Happy'; }
+        else if (meta.sentiment === 'negative') { sentimentEmoji = '😟'; sentimentText = 'Sad'; }
+        else if (meta.sentiment === 'frustrated') { sentimentEmoji = '🤯'; sentimentText = 'Frustrated'; }
+        
+        var actionsDiv = metaContainer.querySelector('div');
+        if (actionsDiv) {
+            var badge = document.createElement('span');
+            badge.className = 'sentiment-badge sentiment-' + meta.sentiment;
+            badge.title = 'Mood: ' + sentimentText;
+            badge.innerHTML = sentimentEmoji + ' ' + sentimentText;
+            actionsDiv.insertBefore(badge, actionsDiv.firstChild);
+        }
+    }
+
+    // Render interactive chart if data is present
+    renderChartIfPresent(messageDiv, rawText);
+
     scrollToBottom();
 }
 
-function addMessage(type, content, sources, chartData, newsResults) {
-    addMessageToUi(type, content, sources, chartData, newsResults, true);
+function renderChartIfPresent(messageDiv, content) {
+    if (!content) return;
+    var match = content.match(/\[CHART:\s*(\{[\s\S]*?\})\s*\]/);
+    if (!match) return;
+    
+    try {
+        var chartConfig = JSON.parse(match[1]);
+        var bubble = messageDiv.querySelector('.message-bubble');
+        var metaContainer = bubble.querySelector('.message-meta');
+        
+        // Remove existing chart-wrapper if present to avoid duplicate renderings on reload
+        var existingWrapper = bubble.querySelector('.chart-wrapper');
+        if (existingWrapper) {
+            existingWrapper.remove();
+        }
+        
+        var wrapper = document.createElement('div');
+        wrapper.className = 'chart-wrapper';
+        
+        var canvas = document.createElement('canvas');
+        canvas.style.cssText = 'max-width: 100%; height: auto; display: block;';
+        wrapper.appendChild(canvas);
+        
+        bubble.insertBefore(wrapper, metaContainer);
+        
+        var ctx = canvas.getContext('2d');
+        new Chart(ctx, {
+            type: chartConfig.type || 'bar',
+            data: {
+                labels: chartConfig.labels || [],
+                datasets: [{
+                    label: chartConfig.title || 'Data Comparison',
+                    data: chartConfig.data || [],
+                    backgroundColor: [
+                        'rgba(59, 130, 246, 0.65)',
+                        'rgba(16, 185, 129, 0.65)',
+                        'rgba(245, 158, 11, 0.65)',
+                        'rgba(239, 68, 68, 0.65)',
+                        'rgba(139, 92, 246, 0.65)'
+                    ],
+                    borderColor: [
+                        '#3b82f6',
+                        '#10b981',
+                        '#f59e0b',
+                        '#ef4444',
+                        '#8b5cf6'
+                    ],
+                    borderWidth: 1.5
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: {
+                        display: ['pie', 'doughnut'].includes(chartConfig.type)
+                    }
+                },
+                scales: ['pie', 'doughnut'].includes(chartConfig.type) ? {} : {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    } catch (e) {
+        console.error('Failed to render chart:', e);
+    }
 }
 
-function addMessageToUi(type, content, sources, chartData, newsResults, saveToHistory) {
+function addMessage(type, content, sources, chartData, newsResults, sentiment) {
+    addMessageToUi(type, content, sources, chartData, newsResults, true, sentiment);
+}
+
+function addMessageToUi(type, content, sources, chartData, newsResults, saveToHistory, sentiment) {
     if (saveToHistory === undefined) saveToHistory = false;
     var messageDiv = document.createElement('div');
     messageDiv.className = 'message ' + type + '-message';
     var avatarHtml = type === 'user' ? '<i class="fas fa-user"></i>' : '<img src="' + LOGO_URL + '" alt="University Logo">';
     var time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
+    var sentimentHtml = '';
+    if (type === 'bot' && sentiment && sentiment !== 'neutral') {
+        var sentimentEmoji = '';
+        var sentimentText = '';
+        if (sentiment === 'positive') { sentimentEmoji = '😊'; sentimentText = 'Happy'; }
+        else if (sentiment === 'negative') { sentimentEmoji = '😟'; sentimentText = 'Sad'; }
+        else if (sentiment === 'frustrated') { sentimentEmoji = '🤯'; sentimentText = 'Frustrated'; }
+        sentimentHtml = `<span class="sentiment-badge sentiment-${sentiment}" title="Mood: ${sentimentText}">${sentimentEmoji} ${sentimentText}</span>`;
+    }
+
     var actionButtonsHtml = type === 'bot' ? `
-        <div style="display: flex; gap: 4px;">
+        <div style="display: flex; gap: 4px; align-items: center;">
+            ${sentimentHtml}
             <button class="speak-btn" onclick="toggleSpeak(this)" title="Read Aloud"><i class="fas fa-volume-up"></i></button>
             <button class="copy-msg-btn" onclick="copyMessageText(this)" title="Copy"><i class="far fa-copy"></i></button>
         </div>` : '';
@@ -714,18 +820,29 @@ function addMessageToUi(type, content, sources, chartData, newsResults, saveToHi
             ${extrasHtml}
             <div class="message-meta"><span class="message-time">${time}</span>${actionButtonsHtml}</div>
         </div>`;
+    
     var welcomeMsg = chatMessages.querySelector('.welcome-message');
     if (welcomeMsg) {
         welcomeMsg.style.animation = 'fadeOut 0.3s ease forwards';
         setTimeout(function () { welcomeMsg.remove(); }, 300);
     }
     chatMessages.appendChild(messageDiv);
+    
+    if (type === 'bot') {
+        renderChartIfPresent(messageDiv, content);
+    }
+
     scrollToBottom();
-    if (saveToHistory) saveMessageToHistory(type === 'bot' ? 'assistant' : 'user', content, sources, chartData, newsResults);
+    if (saveToHistory) saveMessageToHistory(type === 'bot' ? 'assistant' : 'user', content, sources, chartData, newsResults, sentiment);
 }
 
 function formatMessage(text) {
-    var escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    if (!text) return "";
+    
+    // Remove chart tag from rendering
+    var cleanText = text.replace(/\[CHART:\s*\{[\s\S]*?\}\s*\]/g, '');
+
+    var escaped = cleanText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
     var codeBlocks = [];
     escaped = escaped.replace(/```(\w*)\n([\s\S]*?)```/g, function (match, lang, code) {
@@ -736,6 +853,11 @@ function formatMessage(text) {
 
     escaped = escaped.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
     escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+    // Headers support (replace early before breaking lines)
+    escaped = escaped.replace(/^###\s+(.*)$/gim, '<h3>$1</h3>');
+    escaped = escaped.replace(/^##\s+(.*)$/gim, '<h2>$1</h2>');
+    escaped = escaped.replace(/^#\s+(.*)$/gim, '<h1>$1</h1>');
 
     var lines = escaped.split('\n');
     var inList = false;
@@ -848,7 +970,8 @@ function exportCurrentChat() {
     if (!session || session.messages.length === 0) { showToast('No messages to export'); return; }
     var text = '📝 Chat Export: ' + session.title + '\n==================================================\n\n';
     session.messages.forEach(function (msg) {
-        text += (msg.role === 'assistant' ? '🤖 AI' : '👤 You') + ':\n' + msg.content + '\n\n--------------------------------------------------\n\n';
+        var cleanContent = msg.content.replace(/\[CHART:\s*\{[\s\S]*?\}\s*\]/g, '[Interactive Chart]');
+        text += (msg.role === 'assistant' ? '🤖 AI' : '👤 You') + ':\n' + cleanContent + '\n\n--------------------------------------------------\n\n';
     });
     var blob = new Blob([text], { type: 'text/plain' });
     var a = document.createElement('a');
