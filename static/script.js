@@ -55,6 +55,7 @@ let isSwiping = false;
 if (sidebar) {
     sidebar.addEventListener('touchstart', function (e) {
         touchStartX = e.touches[0].clientX;
+        touchCurrentX = touchStartX; // Prevent stale or zero touchCurrentX on tap
         isSwiping = true;
     }, { passive: true });
 
