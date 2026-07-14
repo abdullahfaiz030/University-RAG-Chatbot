@@ -16,7 +16,10 @@
         <!-- ========== SIDEBAR ========== -->
         <div class="sidebar" id="sidebar">
             <div class="sidebar-header">
-                <h3><i class="fas fa-history"></i> Chat History</h3>
+                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                    <h3><i class="fas fa-history"></i> Chat History</h3>
+                    <button class="sidebar-close-btn" onclick="closeSidebar()" title="Close Sidebar"><i class="fas fa-times"></i></button>
+                </div>
                 <button class="new-chat-sidebar-btn" onclick="createNewSession()" title="New Chat"><i
                         class="fas fa-plus"></i> New</button>
             </div>

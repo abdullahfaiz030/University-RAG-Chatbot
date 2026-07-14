@@ -1862,3 +1862,127 @@ li {
 .message-bubble h1 { font-size: 1.45rem; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
 .message-bubble h2 { font-size: 1.25rem; }
 .message-bubble h3 { font-size: 1.1rem; }
+
+/* Sidebar Close Button */
+.sidebar-close-btn {
+    display: none;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 18px;
+    cursor: pointer;
+    padding: 6px;
+    transition: color 0.2s;
+}
+.sidebar-close-btn:hover {
+    color: #ef4444;
+}
+
+/* ============ MOBILE RESPONSIVE OPTIMIZATIONS ============ */
+@media (max-width: 992px) {
+    .sidebar-close-btn {
+        display: block !important;
+    }
+}
+
+@media (max-width: 768px) {
+    textarea,
+    input[type="text"],
+    input[type="date"],
+    select {
+        font-size: 16px !important;
+    }
+    .message {
+        min-width: 0 !important;
+    }
+    .message-bubble {
+        min-width: 0 !important;
+        word-break: break-word !important;
+    }
+    .code-block-wrapper pre {
+        max-width: 100% !important;
+    }
+}
+
+@media (max-width: 480px) {
+    /* Header improvements for visual balance & alignment */
+    .sidebar-toggle-btn {
+        width: 32px !important;
+        height: 32px !important;
+        min-width: 32px !important;
+        min-height: 32px !important;
+        font-size: 14px !important;
+        margin-right: 6px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        border-radius: 50% !important;
+    }
+    
+    .bot-details h2 {
+        font-size: 13px !important;
+        max-width: 140px !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+    }
+    
+    .length-select {
+        min-width: 75px !important;
+        max-width: 80px !important;
+        height: 32px !important;
+        padding: 4px 6px !important;
+        font-size: 11px !important;
+        border-radius: 50px !important;
+    }
+    
+    .new-chat-btn,
+    .logout-header-btn {
+        width: 32px !important;
+        height: 32px !important;
+        min-width: 32px !important;
+        min-height: 32px !important;
+        border-radius: 50% !important;
+    }
+    
+    .header-actions {
+        align-items: center !important;
+    }
+    
+    /* Tab bar smooth horizontal scrolling */
+    .tab-btn {
+        flex-shrink: 0 !important;
+        min-width: fit-content !important;
+    }
+
+    /* Past Papers lists & rankings stacking alignment */
+    #pastPapersList > div {
+        flex-direction: column;
+        align-items: flex-start !important;
+        gap: 8px;
+    }
+    
+    #topicRankingsList > div {
+        flex-direction: column;
+        align-items: stretch !important;
+        gap: 12px;
+    }
+    #topicRankingsList > div > div:last-child {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        text-align: left !important;
+        border-top: 1px dashed #cbd5e1;
+        padding-top: 10px;
+    }
+    #topicRankingsList > div > div:last-child > div {
+        font-size: 18px !important;
+    }
+    
+    /* Form input zoom prevention override */
+    .studyplan-form input,
+    .studyplan-form select,
+    #pastpapersSection input {
+        font-size: 16px !important;
+    }
+}
