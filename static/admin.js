@@ -271,7 +271,7 @@ function renderBrowseFolders() {
             <div class="folder-card">
                 <i class="fas fa-folder folder-icon" style="color:${getFolderColor(name)};"></i>
                 <div class="folder-name">${name}</div>
-                <div class="folder-info">${Object.keys(folder.subfolders || {}).length} subfolders • ${(folder.files || []).length} files</div>
+                <div class="folder-info">${Object.keys(folder.subfolders || {}).length} subfolders • ${folder.totalItems || 0} files</div>
                 <span class="folder-badge">${folder.totalItems || 0}</span>
                 <div style="display:flex;gap:6px;margin-top:8px;">
                     <button class="action-btn" onclick="event.stopPropagation();window.enterFolder('browse','${name.replace(/'/g, "\\'")}')" style="flex:1;"><i class="fas fa-arrow-right"></i> Open</button>
@@ -282,31 +282,65 @@ function renderBrowseFolders() {
     }
 }
 
+function getFilesRecursively(folder) {
+    let files = [...(folder.files || [])];
+    if (folder.subfolders) {
+        Object.values(folder.subfolders).forEach(sub => {
+            files = files.concat(getFilesRecursively(sub));
+        });
+    }
+    return files;
+}
+
 function renderBrowseFiles() {
     const container = document.getElementById('browseFiles');
     if (!container) return;
     let files = [];
-    if (browsePath.length === 0) { if (folderStructure['_root_files']) files = folderStructure['_root_files']; }
-    else {
+    let isRecursive = false;
+    
+    if (browsePath.length === 0) { 
+        if (folderStructure['_root_files']) files = folderStructure['_root_files']; 
+    } else {
         let current = folderStructure;
         for (let i = 0; i < browsePath.length; i++) {
             const part = browsePath[i];
             if (current[part]) {
-                if (i === browsePath.length - 1) files = current[part].files || [];
+                if (i === browsePath.length - 1) {
+                    files = current[part].files || [];
+                    if (files.length === 0 && (current[part].totalItems || 0) > 0) {
+                        files = getFilesRecursively(current[part]);
+                        isRecursive = true;
+                    }
+                }
                 else current = current[part].subfolders || {};
             } else { files = []; break; }
         }
     }
+    
+    // Update files header dynamically
+    const heading = document.querySelector('#browse-section h3');
+    if (heading) {
+        if (isRecursive) {
+            heading.innerHTML = `<i class="fas fa-file-alt"></i> Files inside subfolders`;
+        } else {
+            heading.innerHTML = `<i class="fas fa-file-alt"></i> Files in this folder`;
+        }
+    }
+
     if (files.length === 0) {
         container.innerHTML = `<div style="text-align:center;padding:30px;color:var(--text-secondary);"><i class="fas fa-file-alt" style="font-size:30px;opacity:0.3;margin-bottom:8px;display:block;"></i><p style="font-size:13px;">No files in this folder</p></div>`;
         return;
     }
+    
     container.innerHTML = files.map(doc => `
         <div class="file-card">
             <i class="fas ${getFileIcon(doc.file_type)} file-icon" style="color:${getFolderColor(doc.file_type || '')};"></i>
             <div class="file-details">
                 <div class="file-name">${doc.filename}</div>
-                <div class="file-meta">${doc.file_type ? doc.file_type.toUpperCase() : ''} • ${formatDate(doc.upload_date)}</div>
+                <div class="file-meta">
+                    ${doc.file_type ? doc.file_type.toUpperCase() : ''} • ${formatDate(doc.upload_date)}
+                    ${isRecursive && doc.category ? ` • 📁 ${doc.category}` : ''}
+                </div>
             </div>
             <button class="action-btn rename-btn" onclick="openRenameModal('${doc.doc_id}','${(doc.filename || '').replace(/'/g, "\\'")}')" title="Rename"><i class="fas fa-pen"></i></button>
             <button class="action-btn delete-btn" onclick="deleteDocument('${doc.doc_id}')"><i class="fas fa-trash"></i></button>
