@@ -458,7 +458,7 @@ async function loadDocuments() {
             allDocuments = data.documents;
             updateCategoryFilter();
             updateQuickFolders();
-            renderDocumentList(allDocuments);
+            filterDocuments();
         } else {
             grid.innerHTML = `<div style="text-align:center;padding:50px;color:var(--text-secondary);"><i class="fas fa-folder-open" style="font-size:50px;opacity:0.5;"></i><p>No documents uploaded yet</p></div>`;
             document.getElementById('quickFolders').innerHTML = '';
@@ -512,13 +512,53 @@ function renderDocumentList(docs) {
 function filterDocuments() {
     const searchTerm = document.getElementById('docSearch').value.toLowerCase();
     const category = document.getElementById('categoryFilter').value;
-    let filtered = allDocuments;
-    if (searchTerm) filtered = filtered.filter(doc => doc.filename.toLowerCase().includes(searchTerm) || (doc.category && doc.category.toLowerCase().includes(searchTerm)));
-    if (category) filtered = filtered.filter(doc => doc.category === category);
+    const sortBy = document.getElementById('sortBy')?.value || 'category';
+    
+    let filtered = [...allDocuments];
+    
+    // Apply filters
+    if (searchTerm) {
+        filtered = filtered.filter(doc => 
+            doc.filename.toLowerCase().includes(searchTerm) || 
+            (doc.category && doc.category.toLowerCase().includes(searchTerm))
+        );
+    }
+    if (category) {
+        filtered = filtered.filter(doc => doc.category === category);
+    }
+    
+    // Apply sorting
+    filtered.sort((a, b) => {
+        if (sortBy === 'category') {
+            const catA = a.category || 'Uncategorized';
+            const catB = b.category || 'Uncategorized';
+            if (catA !== catB) {
+                return catA.localeCompare(catB);
+            }
+            return a.filename.localeCompare(b.filename);
+        } else if (sortBy === 'nameAsc') {
+            return a.filename.localeCompare(b.filename);
+        } else if (sortBy === 'nameDesc') {
+            return b.filename.localeCompare(a.filename);
+        } else if (sortBy === 'dateDesc') {
+            const dateA = new Date(a.upload_date || 0);
+            const dateB = new Date(b.upload_date || 0);
+            return dateB - dateA;
+        } else if (sortBy === 'dateAsc') {
+            const dateA = new Date(a.upload_date || 0);
+            const dateB = new Date(b.upload_date || 0);
+            return dateA - dateB;
+        }
+        return 0;
+    });
+    
     renderDocumentList(filtered);
 }
 
-function filterByCategory(category) { document.getElementById('categoryFilter').value = category; filterDocuments(); }
+function filterByCategory(category) { 
+    document.getElementById('categoryFilter').value = category; 
+    filterDocuments(); 
+}
 
 // ============ UPLOAD ============
 

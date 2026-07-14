@@ -138,6 +138,14 @@
                         style="padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: 13px;">
                         <option value="">All Categories</option>
                     </select>
+                    <select id="sortBy" onchange="filterDocuments()"
+                        style="padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: 13px;">
+                        <option value="category">📁 Group by Category</option>
+                        <option value="nameAsc">🔤 Name (A - Z)</option>
+                        <option value="nameDesc">🔤 Name (Z - A)</option>
+                        <option value="dateDesc">📅 Upload Date (Newest)</option>
+                        <option value="dateAsc">📅 Upload Date (Oldest)</option>
+                    </select>
                 </div>
 
                 <div class="documents-grid" id="documentsGrid">
