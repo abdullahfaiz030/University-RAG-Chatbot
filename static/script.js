@@ -288,6 +288,34 @@ async function clearAllSessions() {
     }
 }
 
+// ========== THEME TOGGLING ==========
+function initTheme() {
+    var savedTheme = localStorage.getItem('theme');
+    var toggleBtn = document.getElementById('themeToggleBtn');
+    if (savedTheme === 'dark') {
+        document.body.classList.add('dark-theme');
+        if (toggleBtn) toggleBtn.innerHTML = '<i class="fas fa-sun"></i>';
+    } else {
+        document.body.classList.remove('dark-theme');
+        if (toggleBtn) toggleBtn.innerHTML = '<i class="fas fa-moon"></i>';
+    }
+}
+
+function toggleTheme() {
+    var toggleBtn = document.getElementById('themeToggleBtn');
+    if (document.body.classList.contains('dark-theme')) {
+        document.body.classList.remove('dark-theme');
+        localStorage.setItem('theme', 'light');
+        if (toggleBtn) toggleBtn.innerHTML = '<i class="fas fa-moon"></i>';
+        showToast('Switched to Light Theme');
+    } else {
+        document.body.classList.add('dark-theme');
+        localStorage.setItem('theme', 'dark');
+        if (toggleBtn) toggleBtn.innerHTML = '<i class="fas fa-sun"></i>';
+        showToast('Switched to Dark Theme');
+    }
+}
+
 // ========== INITIALIZATION ==========
 
 let isAppInitialized = false;
@@ -295,6 +323,8 @@ let isAppInitialized = false;
 function initializeApp() {
     if (isAppInitialized) return;
     isAppInitialized = true;
+    initTheme();
+    loadStats();
     initSpeechRecognition();
     loadSessionsFromStorage();
     checkSystemStatus();
@@ -581,6 +611,7 @@ async function sendMessage() {
     var imgFullSrc = imgDataToSend ? `data:${imgMimeToSend};base64,${imgDataToSend}` : null;
     
     addMessage('user', message, null, null, null, null, imgFullSrc);
+    incrementStat('questionsAsked');
     clearSelectedImage();
     
     userInput.value = '';
@@ -1041,7 +1072,9 @@ function switchTab(tabName) {
         'flashcards': 'tabBtnFlashcards', 
         'studyplan': 'tabBtnStudyPlan', 
         'pastpapers': 'tabBtnPastPapers',
-        'summaries': 'tabBtnSummaries'
+        'summaries': 'tabBtnSummaries',
+        'quiz': 'tabBtnQuiz',
+        'stats': 'tabBtnStats'
     };
     if (tabMap[tabName]) document.getElementById(tabMap[tabName]).classList.add('active');
     document.querySelectorAll('.tab-section').forEach(function (s) { s.classList.remove('active'); s.style.display = 'none'; });
@@ -1050,7 +1083,9 @@ function switchTab(tabName) {
         'flashcards': 'flashcardsSection', 
         'studyplan': 'studyplanSection', 
         'pastpapers': 'pastpapersSection',
-        'summaries': 'summariesSection'
+        'summaries': 'summariesSection',
+        'quiz': 'quizSection',
+        'stats': 'statsSection'
     };
     var sec = document.getElementById(secMap[tabName]);
     if (sec) { sec.classList.add('active'); sec.style.display = 'flex'; }
@@ -1058,6 +1093,8 @@ function switchTab(tabName) {
     else if (tabName === 'flashcards') document.getElementById('flashcardTopic').focus();
     else if (tabName === 'pastpapers') { loadTopicRankings(); loadPastPapersList(); }
     else if (tabName === 'summaries') document.getElementById('summaryTopic').focus();
+    else if (tabName === 'quiz') document.getElementById('quizTopic').focus();
+    else if (tabName === 'stats') { renderStatsDashboard(); }
 }
 
 async function generateFlashcards() {
@@ -1093,6 +1130,7 @@ function renderCard() {
         document.getElementById('cardQuestion').textContent = flashcardsDeck[currentCardIndex].question;
         document.getElementById('cardAnswer').textContent = flashcardsDeck[currentCardIndex].answer;
     }, 150);
+    incrementStat('cardsReviewed');
     updateControls();
 }
 
@@ -1191,7 +1229,11 @@ async function generateStudyPlan() {
                 if (jsonStart > 0) plan.overview = plan.overview.substring(0, jsonStart).trim();
                 if (plan.overview.startsWith('{')) plan.overview = 'Your personalized study plan is ready!';
             }
-            renderStudyPlan(plan); resultDiv.style.display = 'block'; resultDiv.scrollIntoView({ behavior: 'smooth' }); showToast('✅ Study plan generated!');
+            renderStudyPlan(plan); 
+            incrementStat('plansCreated');
+            resultDiv.style.display = 'block'; 
+            resultDiv.scrollIntoView({ behavior: 'smooth' }); 
+            showToast('✅ Study plan generated!');
         } else { showToast(data.error || 'Failed to generate plan'); }
     } catch (error) { console.error('Study plan error:', error); showToast('Connection error. Please try again.'); }
     finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-magic"></i> Generate Study Plan'; }
@@ -1425,4 +1467,212 @@ function clearSelectedImage(e) {
     var fileInput = document.getElementById('imageInput');
     if (previewContainer) previewContainer.style.display = 'none';
     if (fileInput) fileInput.value = '';
+}
+
+// ========== STUDENT STATISTICS & DASHBOARD ==========
+var studentStats = {
+    questionsAsked: 0,
+    cardsReviewed: 0,
+    plansCreated: 0,
+    quizzesCompleted: 0,
+    totalQuizScore: 0
+};
+
+function loadStats() {
+    var saved = localStorage.getItem('university_student_stats');
+    if (saved) {
+        try {
+            studentStats = JSON.parse(saved);
+        } catch (e) {
+            console.error('Failed to parse stats:', e);
+        }
+    }
+}
+
+function saveStats() {
+    localStorage.setItem('university_student_stats', JSON.stringify(studentStats));
+}
+
+function incrementStat(key, val) {
+    if (val === undefined) val = 1;
+    if (studentStats[key] !== undefined) {
+        studentStats[key] += val;
+        saveStats();
+    }
+}
+
+function renderStatsDashboard() {
+    loadStats();
+    
+    document.getElementById('statQuestions').textContent = studentStats.questionsAsked || 0;
+    document.getElementById('statFlashcards').textContent = studentStats.cardsReviewed || 0;
+    document.getElementById('statPlans').textContent = studentStats.plansCreated || 0;
+    document.getElementById('statQuizzes').textContent = studentStats.quizzesCompleted || 0;
+    
+    var scoreText = '0%';
+    var barWidth = '0%';
+    if (studentStats.quizzesCompleted > 0) {
+        var totalQuestions = studentStats.quizzesCompleted * 5;
+        var percentage = Math.round((studentStats.totalQuizScore / totalQuestions) * 100);
+        scoreText = percentage + '%';
+        barWidth = percentage + '%';
+    }
+    
+    document.getElementById('quizAccuracyPercent').textContent = scoreText;
+    document.getElementById('quizAccuracyBar').style.width = barWidth;
+}
+
+
+// ========== AI PRACTICE QUIZ CONTROLLER ==========
+var activeQuizDeck = [];
+var currentQuizIndex = 0;
+var quizSelectedAnswer = null;
+var activeQuizScore = 0;
+var isGeneratingQuiz = false;
+
+async function generateQuiz() {
+    if (isGeneratingQuiz) return;
+    var topic = document.getElementById('quizTopic').value.trim();
+    if (!topic) {
+        showToast('Please enter a quiz topic');
+        return;
+    }
+    
+    var btn = document.getElementById('generateQuizBtn');
+    isGeneratingQuiz = true;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating Quiz...';
+    
+    try {
+        var res = await fetch('/generate-quiz', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ topic: topic })
+        });
+        var data = await res.json();
+        if (data.success && data.quiz && data.quiz.length > 0) {
+            activeQuizDeck = data.quiz;
+            currentQuizIndex = 0;
+            activeQuizScore = 0;
+            
+            document.getElementById('quizSetupForm').style.display = 'none';
+            document.getElementById('quizPlayContainer').style.display = 'block';
+            document.getElementById('quizScorecard').style.display = 'none';
+            
+            showToast('Quiz generated! Good luck!');
+            renderQuizQuestion();
+        } else {
+            showToast(data.error || 'Failed to generate quiz.');
+        }
+    } catch (e) {
+        showToast('Connection error. Please try again.');
+    } finally {
+        isGeneratingQuiz = false;
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-play"></i> Generate Quiz';
+    }
+}
+
+function renderQuizQuestion() {
+    if (!activeQuizDeck.length || currentQuizIndex >= activeQuizDeck.length) return;
+    
+    var q = activeQuizDeck[currentQuizIndex];
+    quizSelectedAnswer = null;
+    
+    document.getElementById('quizProgressLabel').textContent = 'Question ' + (currentQuizIndex + 1) + ' of ' + activeQuizDeck.length;
+    document.getElementById('quizQuestionText').textContent = q.question;
+    
+    document.getElementById('quizExplanationBox').style.display = 'none';
+    var actionBtn = document.getElementById('quizActionBtn');
+    actionBtn.innerHTML = '<i class="fas fa-check"></i> Submit Answer';
+    actionBtn.onclick = submitQuizAnswer;
+    
+    var optionsList = document.getElementById('quizOptionsList');
+    optionsList.innerHTML = '';
+    
+    q.options.forEach(function(opt, index) {
+        var optBtn = document.createElement('div');
+        optBtn.className = 'quiz-option';
+        optBtn.style.cssText = 'padding:14px; background:var(--surface-light); border:1.5px solid var(--border); border-radius:10px; cursor:pointer; font-size:14px; transition:all 0.2s; color:var(--text);';
+        optBtn.innerHTML = opt;
+        
+        optBtn.onclick = function() {
+            document.querySelectorAll('.quiz-option').forEach(function(el) {
+                el.style.borderColor = 'var(--border)';
+                el.style.background = 'var(--surface-light)';
+            });
+            
+            optBtn.style.borderColor = 'var(--primary)';
+            optBtn.style.background = 'var(--surface-warm)';
+            quizSelectedAnswer = index;
+        };
+        
+        optionsList.appendChild(optBtn);
+    });
+}
+
+function submitQuizAnswer() {
+    if (quizSelectedAnswer === null) {
+        showToast('Please select an option first!');
+        return;
+    }
+    
+    var q = activeQuizDeck[currentQuizIndex];
+    var optionElements = document.querySelectorAll('.quiz-option');
+    
+    optionElements.forEach(function(el, index) {
+        el.onclick = null;
+        if (index === q.answer_index) {
+            el.style.borderColor = 'var(--success)';
+            el.style.background = '#d1fae5';
+            el.style.color = '#047857';
+            el.innerHTML += ' <i class="fas fa-check-circle" style="color:var(--success); margin-left:8px;"></i>';
+        } else if (index === quizSelectedAnswer) {
+            el.style.borderColor = 'var(--error)';
+            el.style.background = '#ffe4e6';
+            el.style.color = '#b91c1c';
+            el.innerHTML += ' <i class="fas fa-times-circle" style="color:var(--error); margin-left:8px;"></i>';
+        }
+    });
+    
+    var isCorrect = (quizSelectedAnswer === q.answer_index);
+    if (isCorrect) {
+        activeQuizScore++;
+        showToast('Correct answer! 🎉');
+    } else {
+        showToast('Incorrect answer 😢');
+    }
+    
+    var explBox = document.getElementById('quizExplanationBox');
+    explBox.innerHTML = '<strong>Explanation:</strong> ' + q.explanation;
+    explBox.style.display = 'block';
+    
+    var actionBtn = document.getElementById('quizActionBtn');
+    if (currentQuizIndex < activeQuizDeck.length - 1) {
+        actionBtn.innerHTML = 'Next Question <i class="fas fa-arrow-right"></i>';
+        actionBtn.onclick = nextQuizQuestion;
+    } else {
+        actionBtn.innerHTML = 'View Scorecard <i class="fas fa-trophy"></i>';
+        actionBtn.onclick = showQuizResults;
+    }
+}
+
+function nextQuizQuestion() {
+    currentQuizIndex++;
+    renderQuizQuestion();
+}
+
+function showQuizResults() {
+    incrementStat('quizzesCompleted', 1);
+    incrementStat('totalQuizScore', activeQuizScore);
+    
+    document.getElementById('quizPlayContainer').style.display = 'none';
+    document.getElementById('quizScorecard').style.display = 'block';
+    document.getElementById('quizScoreText').textContent = activeQuizScore + ' / ' + activeQuizDeck.length;
+}
+
+function restartQuiz() {
+    document.getElementById('quizScorecard').style.display = 'none';
+    document.getElementById('quizSetupForm').style.display = 'block';
+    document.getElementById('quizTopic').value = '';
 }

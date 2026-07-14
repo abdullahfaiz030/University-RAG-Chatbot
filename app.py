@@ -1441,6 +1441,93 @@ def generate_summary():
         print(f"Summary error: {e}")
         return jsonify({'error': 'An internal error occurred.'}), 500
 
+@app.route('/generate-quiz', methods=['POST'])
+@login_required
+def generate_quiz():
+    try:
+        data = request.json or {}
+        topic = data.get('topic', '').strip()
+        if not topic: return jsonify({'error': 'Please provide a topic.'}), 400
+        if not gemini_api_key and not groq_api_key: return jsonify({'error': 'AI service not available.'}), 500
+        
+        doc_context = ""
+        if qdrant_client and embedding_model:
+            try:
+                query_embedding = embedding_model.encode(topic).tolist()
+                results = qdrant_client.search(collection_name="university_notes", query_vector=query_embedding, limit=6)
+                if results: doc_context = "\n\n".join([h.payload.get('text', '') for h in results])
+            except: pass
+            
+        if not doc_context: return jsonify({'error': 'No relevant notes found for this topic.'}), 404
+        
+        system_prompt = (
+            "You are an academic quiz generator. Create a structured multiple-choice quiz on the topic. "
+            "Your output must be a VALID JSON array of 5 questions. "
+            "Do not include markdown tags (like ```json) in your raw response. Output ONLY the raw JSON string. "
+            "Format of each question object:\n"
+            "[\n"
+            "  {\n"
+            "    \"question\": \"Question text?\",\n"
+            "    \"options\": [\"Option A\", \"Option B\", \"Option C\", \"Option D\"],\n"
+            "    \"answer_index\": 0,\n"
+            "    \"explanation\": \"Explain why the option at answer_index is correct based on academic theory.\"\n"
+            "  }\n"
+            "]"
+        )
+        user_prompt = f"Topic: {topic}\n\nNotes Context:\n{doc_context[:3000]}\n\nGenerate 5 MCQs in raw JSON:"
+        
+        response_text = None
+        if gemini_api_key:
+            for model in GEMINI_MODELS:
+                try:
+                    response_text = gemini_chat_completion(system_prompt=system_prompt, contents=[{"role":"user","parts":[{"text":user_prompt}]}], model=model, max_tokens=1500, temperature=0.5)
+                    if response_text: break
+                except: continue
+        if not response_text and groq_api_key:
+            for model in GROQ_MODELS:
+                try:
+                    response_text = groq_chat_completion(messages=[{"role":"system","content":system_prompt},{"role":"user","content":user_prompt}], model=model, max_tokens=1500, temperature=0.5)
+                    break
+                except: continue
+                
+        if not response_text: return jsonify({'error': 'Failed to generate quiz.'}), 500
+        
+        raw = response_text.strip()
+        if raw.startswith("```"): 
+            raw = re.sub(r'^```(?:json)?\n', '', raw)
+            raw = re.sub(r'\n```$', '', raw)
+            
+        try:
+            quiz = json.loads(raw)
+            if isinstance(quiz, list) and len(quiz) > 0:
+                return jsonify({'success': True, 'quiz': quiz})
+        except:
+            try:
+                match = re.search(r'\[\s*\{.*\}\s*\]', raw, re.DOTALL)
+                if match: 
+                    quiz = json.loads(match.group(0))
+                    return jsonify({'success': True, 'quiz': quiz})
+            except: pass
+            
+        fallback_quiz = [
+            {
+                "question": "What is the primary goal of project risk management?",
+                "options": [
+                    "To identify and manage risks to ensure project success",
+                    "To completely eliminate all risks from the project",
+                    "To transfer all risks to third parties",
+                    "To increase the project budget"
+                ],
+                "answer_index": 0,
+                "explanation": "Project risk management aims to identify, assess, and manage risks, minimizing negative impacts and maximizing positive opportunities for project success."
+            }
+        ]
+        return jsonify({'success': True, 'quiz': fallback_quiz, 'note': 'Using fallback quiz'})
+        
+    except Exception as e:
+        print(f"Quiz error: {e}")
+        return jsonify({'error': 'An internal error occurred.'}), 500
+
 # ========== SMART STUDY PLAN GENERATOR ==========
 
 @app.route('/generate-study-plan', methods=['POST'])

@@ -13,10 +13,28 @@
     --warning: #d97706;
     --error: #e11d48;
     --border: #bfdbfe;
+    --border-light: #dbeafe;
+    --gradient-start: #dbeafe;
+    --gradient-end: #e0f2fe;
     --radius: 20px;
     --radius-sm: 12px;
     --shadow: 0 20px 40px -8px rgba(29, 78, 216, 0.12);
     --shadow-sm: 0 4px 16px rgba(29, 78, 216, 0.08);
+}
+
+.dark-theme {
+    --bg: #090d16;
+    --surface: #111827;
+    --surface-light: #1f2937;
+    --surface-warm: #182235;
+    --text: #f3f4f6;
+    --text-secondary: #9ca3af;
+    --border: #374151;
+    --border-light: #1f2937;
+    --gradient-start: #1e1b4b;
+    --gradient-end: #111827;
+    --shadow: 0 20px 40px -8px rgba(0, 0, 0, 0.5);
+    --shadow-sm: 0 4px 16px rgba(0, 0, 0, 0.3);
 }
 
 * {
@@ -27,12 +45,14 @@
 
 body {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    background: linear-gradient(145deg, #dbeafe 0%, #eff6ff 40%, #e0f2fe 70%, #f0fdf4 100%);
+    background: linear-gradient(145deg, var(--gradient-start) 0%, var(--bg) 50%, var(--gradient-end) 100%);
     min-height: 100vh;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 20px;
+    color: var(--text);
+    transition: background 0.3s ease, color 0.3s ease;
 }
 
 body::before {
@@ -70,13 +90,13 @@ body::before {
     box-shadow: var(--shadow), 0 0 0 1.5px rgba(59, 130, 246, 0.15);
     overflow: hidden;
     position: relative;
-    border: 1.5px solid #bfdbfe;
+    border: 1.5px solid var(--border);
 }
 
 .sidebar {
     width: 260px;
     background: var(--surface);
-    border: 1.5px solid #bfdbfe;
+    border: 1.5px solid var(--border);
     border-radius: 28px;
     display: flex;
     flex-direction: column;
@@ -88,7 +108,7 @@ body::before {
 
 .sidebar-header {
     padding: 16px 20px;
-    border-bottom: 1.5px solid #dbeafe;
+    border-bottom: 1.5px solid var(--border-light);
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -1990,4 +2010,24 @@ li {
 .attach-btn:hover {
     background: #eff6ff !important;
     color: #2563eb !important;
+}
+
+.theme-toggle-btn {
+    background: var(--surface-light);
+    border: 1.5px solid var(--border);
+    color: var(--text-secondary);
+    border-radius: 50%;
+    width: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s ease;
+}
+.theme-toggle-btn:hover {
+    background: var(--border-light);
+    color: var(--primary);
+    transform: scale(1.05);
 }
