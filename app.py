@@ -845,11 +845,41 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
         user_prompt = f"Question: {user_message}\n\nShort answer:"; max_tokens = 100
 
     if length_control == 'short':
-        system_prompt += " IMPORTANT: Keep response extremely short and concise (1 sentence max)."; max_tokens = 80
+        system_prompt = system_prompt.replace("3-5 sentences", "1 sentence max").replace("2-3 sentences", "1 sentence max")
+        system_prompt += " IMPORTANT: Keep response extremely short and concise (1 sentence max)."
+        max_tokens = 80
     elif length_control == 'detailed':
-        system_prompt += " Provide a detailed explanation with formatting, bullet points, or code blocks where relevant."; max_tokens = 1000
+        system_prompt = system_prompt.replace("Answer in 1-3 SHORT sentences.", "Provide a detailed and thorough explanation.")
+        system_prompt = system_prompt.replace("SHORT greeting. 1 sentence only.", "friendly greeting.")
+        system_prompt = system_prompt.replace("In 1-2 short sentences, explain", "Explain in detail")
+        system_prompt = system_prompt.replace("In 1 short sentence, explain", "Explain in detail")
+        system_prompt = system_prompt.replace("1-2 short sentences, honestly say", "Honestly say")
+        system_prompt = system_prompt.replace("1 very short, warm sentence.", "warm response.")
+        system_prompt = system_prompt.replace("2-3 sentences.", "detailed explanation.")
+        system_prompt = system_prompt.replace("3-5 sentences.", "comprehensive, detailed explanation.")
+        
+        user_prompt = user_prompt.replace("Short answer:", "Detailed answer:")
+        user_prompt = user_prompt.replace("Short response:", "Detailed response:")
+        user_prompt = user_prompt.replace("Short greeting:", "Greeting:")
+        
+        system_prompt += " Provide a detailed explanation with formatting, bullet points, or code blocks where relevant."
+        max_tokens = 1000
     else:
-        system_prompt += " Keep response to a medium length (2-4 sentences max)."; max_tokens = 250
+        system_prompt = system_prompt.replace("Answer in 1-3 SHORT sentences.", "Provide a clear and complete answer.")
+        system_prompt = system_prompt.replace("SHORT greeting. 1 sentence only.", "warm greeting.")
+        system_prompt = system_prompt.replace("In 1-2 short sentences, explain", "Explain")
+        system_prompt = system_prompt.replace("In 1 short sentence, explain", "Explain")
+        system_prompt = system_prompt.replace("1-2 short sentences, honestly say", "Honestly say")
+        system_prompt = system_prompt.replace("1 very short, warm sentence.", "warm response.")
+        system_prompt = system_prompt.replace("2-3 sentences.", "complete response.")
+        system_prompt = system_prompt.replace("3-5 sentences.", "clear response.")
+        
+        user_prompt = user_prompt.replace("Short answer:", "Answer:")
+        user_prompt = user_prompt.replace("Short response:", "Response:")
+        user_prompt = user_prompt.replace("Short greeting:", "Greeting:")
+        
+        system_prompt += " Keep response to a medium length (2-4 sentences max)."
+        max_tokens = 250
 
     wants_chart = any(w in user_lower for w in ['chart', 'graph', 'plot', 'statistics', 'stats', 'compare', 'comparison', 'data table', 'trend'])
     if wants_chart and not is_casual:
