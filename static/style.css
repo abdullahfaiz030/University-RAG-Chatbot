@@ -1987,3 +1987,7 @@ li {
         font-size: 16px !important;
     }
 }
+.attach-btn:hover {
+    background: #eff6ff !important;
+    color: #2563eb !important;
+}

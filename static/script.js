@@ -222,12 +222,12 @@ function loadSessionMessages(id) {
         startNewChat();
     } else {
         session.messages.forEach(function (msg) {
-            addMessageToUi(msg.role === 'assistant' ? 'bot' : 'user', msg.content, msg.sources, msg.chart_data, msg.news_results, false, msg.sentiment);
+            addMessageToUi(msg.role === 'assistant' ? 'bot' : 'user', msg.content, msg.sources, msg.chart_data, msg.news_results, false, msg.sentiment, msg.image_data);
         });
     }
 }
 
-async function saveMessageToHistory(role, content, sources, chartData, newsResults, sentiment) {
+async function saveMessageToHistory(role, content, sources, chartData, newsResults, sentiment, imageData) {
     var session = chatSessions.find(function (s) { return s.id === sessionId; });
     if (session) {
         if (session.messages.length === 0 && role === 'user') {
@@ -243,7 +243,7 @@ async function saveMessageToHistory(role, content, sources, chartData, newsResul
                 console.error('Failed to sync session title:', error);
             }
         }
-        session.messages.push({ role: role, content: content, sources: sources, chart_data: chartData, news_results: newsResults, sentiment: sentiment });
+        session.messages.push({ role: role, content: content, sources: sources, chart_data: chartData, news_results: newsResults, sentiment: sentiment, image_data: imageData });
         saveSessionsToStorage();
     }
 }
@@ -573,9 +573,16 @@ function sendSuggestion(text) {
 async function sendMessage() {
     if (isProcessing) return;
     var message = userInput.value.trim();
-    if (!message) return;
+    if (!message && !selectedImageData) return;
     isProcessing = true;
-    addMessage('user', message);
+    
+    var imgDataToSend = selectedImageData;
+    var imgMimeToSend = selectedImageMime;
+    var imgFullSrc = imgDataToSend ? `data:${imgMimeToSend};base64,${imgDataToSend}` : null;
+    
+    addMessage('user', message, null, null, null, null, imgFullSrc);
+    clearSelectedImage();
+    
     userInput.value = '';
     userInput.style.height = 'auto';
     var typingId = showTypingIndicator();
@@ -590,7 +597,14 @@ async function sendMessage() {
         var response = await fetch('/chat/stream', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: message, session_id: sessionId, language: selectedLanguage, length_control: lengthControl })
+            body: JSON.stringify({ 
+                message: message, 
+                session_id: sessionId, 
+                language: selectedLanguage, 
+                length_control: lengthControl,
+                image_data: imgDataToSend,
+                image_mime: imgMimeToSend
+            })
         });
         if (!response.ok || !response.body) throw new Error('Stream failed');
         var reader = response.body.getReader();
@@ -792,11 +806,11 @@ function renderChartIfPresent(messageDiv, content) {
     }
 }
 
-function addMessage(type, content, sources, chartData, newsResults, sentiment) {
-    addMessageToUi(type, content, sources, chartData, newsResults, true, sentiment);
+function addMessage(type, content, sources, chartData, newsResults, sentiment, imageData) {
+    addMessageToUi(type, content, sources, chartData, newsResults, true, sentiment, imageData);
 }
 
-function addMessageToUi(type, content, sources, chartData, newsResults, saveToHistory, sentiment) {
+function addMessageToUi(type, content, sources, chartData, newsResults, saveToHistory, sentiment, imageData) {
     if (saveToHistory === undefined) saveToHistory = false;
     var messageDiv = document.createElement('div');
     messageDiv.className = 'message ' + type + '-message';
@@ -825,9 +839,15 @@ function addMessageToUi(type, content, sources, chartData, newsResults, saveToHi
         extrasHtml += '<div class="message-sources"><i class="fas fa-file-alt"></i> Based on: ' + sources.slice(0, 2).join(', ') + '</div>';
     }
 
+    var imageHtml = '';
+    if (imageData) {
+        imageHtml = `<div class="message-image-wrapper" style="margin-bottom:8px; border-radius:8px; overflow:hidden; max-width:200px; border: 1px solid var(--border);"><img src="${imageData}" style="width:100%; height:auto; display:block; cursor:pointer;" onclick="window.open(this.src)"></div>`;
+    }
+
     messageDiv.innerHTML = `
         <div class="message-avatar">${avatarHtml}</div>
         <div class="message-bubble">
+            ${imageHtml}
             <div class="message-text">${formatMessage(content)}</div>
             ${extrasHtml}
             <div class="message-meta"><span class="message-time">${time}</span>${actionButtonsHtml}</div>
@@ -845,7 +865,7 @@ function addMessageToUi(type, content, sources, chartData, newsResults, saveToHi
     }
 
     scrollToBottom();
-    if (saveToHistory) saveMessageToHistory(type === 'bot' ? 'assistant' : 'user', content, sources, chartData, newsResults, sentiment);
+    if (saveToHistory) saveMessageToHistory(type === 'bot' ? 'assistant' : 'user', content, sources, chartData, newsResults, sentiment, imageData);
 }
 
 function formatMessage(text) {
@@ -1357,4 +1377,52 @@ function copySummaryText() {
     }).catch(function() {
         showToast('Failed to copy');
     });
+}
+
+// ========== IMAGE UPLOAD SUPPORT ==========
+var selectedImageData = null;
+var selectedImageMime = null;
+
+function triggerImageUpload(e) {
+    if (e) e.preventDefault();
+    var fileInput = document.getElementById('imageInput');
+    if (fileInput) fileInput.click();
+}
+
+function handleImageSelection(e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+        showToast('Please select a valid image file');
+        return;
+    }
+    
+    var reader = new FileReader();
+    reader.onload = function(event) {
+        var base64 = event.target.result;
+        selectedImageData = base64.split(',')[1];
+        selectedImageMime = file.type;
+        
+        var previewContainer = document.getElementById('imagePreviewContainer');
+        var thumbnail = document.getElementById('imagePreviewThumbnail');
+        var nameLabel = document.getElementById('imagePreviewName');
+        
+        if (previewContainer && thumbnail && nameLabel) {
+            thumbnail.src = base64;
+            nameLabel.textContent = file.name;
+            previewContainer.style.display = 'flex';
+        }
+    };
+    reader.readAsDataURL(file);
+}
+
+function clearSelectedImage(e) {
+    if (e) e.preventDefault();
+    selectedImageData = null;
+    selectedImageMime = null;
+    
+    var previewContainer = document.getElementById('imagePreviewContainer');
+    var fileInput = document.getElementById('imageInput');
+    if (previewContainer) previewContainer.style.display = 'none';
+    if (fileInput) fileInput.value = '';
 }

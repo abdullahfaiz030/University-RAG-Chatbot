@@ -1254,6 +1254,7 @@ def chat():
 @login_required
 def chat_stream():
     uploaded_context, uploaded_filenames = "", []
+    image_data, image_mime = None, None
     if request.content_type and 'multipart/form-data' in request.content_type:
         user_message = request.form.get('message', '').strip()
         session_id = request.form.get('session_id', 'default')
@@ -1264,6 +1265,8 @@ def chat_stream():
         user_message = data.get('message', '').strip()
         session_id = data.get('session_id', 'default')
         length_control = data.get('length_control', 'medium')
+        image_data = data.get('image_data')
+        image_mime = data.get('image_mime', 'image/png')
         files = []
     for file in files:
         if not file.filename: continue
@@ -1293,6 +1296,14 @@ def chat_stream():
         streamed_ok = False
         if gemini_api_key:
             contents = build_gemini_contents(ctx.get('history_messages', []), ctx['user_prompt'])
+            if image_data:
+                # Append base64 image details to the last part (current user prompt)
+                contents[-1]['parts'].append({
+                    "inlineData": {
+                        "mimeType": image_mime,
+                        "data": image_data
+                    }
+                })
             for model in GEMINI_MODELS:
                 try:
                     for delta in gemini_chat_completion_stream(system_prompt=ctx['system_prompt'], contents=contents, model=model, max_tokens=ctx['max_tokens'], temperature=0.7):
@@ -1303,8 +1314,26 @@ def chat_stream():
         if not streamed_ok and groq_api_key:
             messages = [{"role": "system", "content": ctx['system_prompt']}]
             if ctx.get('history_messages'): messages.extend(ctx['history_messages'])
-            messages.append({"role": "user", "content": ctx['user_prompt']})
-            for model in GROQ_MODELS:
+            
+            if image_data:
+                messages.append({
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": ctx['user_prompt']},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{image_mime};base64,{image_data}"
+                            }
+                        }
+                    ]
+                })
+                models_to_try = ["llama-3.2-11b-vision-preview"] + GROQ_MODELS
+            else:
+                messages.append({"role": "user", "content": ctx['user_prompt']})
+                models_to_try = GROQ_MODELS
+
+            for model in models_to_try:
                 try:
                     for delta in groq_chat_completion_stream(messages=messages, model=model, max_tokens=ctx['max_tokens'], temperature=0.7):
                         full_response += delta
