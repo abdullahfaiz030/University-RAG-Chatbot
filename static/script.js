@@ -145,6 +145,17 @@ function saveSessionsToStorage() {
 async function createNewSession(isInit) {
     if (isInit === undefined) isInit = false;
 
+    // Prevent duplicate empty sessions by reusing any existing empty session
+    if (!isInit) {
+        var emptySession = chatSessions.find(function (s) { return s.messages.length === 0; });
+        if (emptySession) {
+            selectSession(emptySession.id);
+            closeSidebar();
+            userInput.focus();
+            return;
+        }
+    }
+
     var newSession = {
         id: 'sid-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
         title: 'New Chat',
