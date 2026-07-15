@@ -1,67 +1,16 @@
-# ========== SENSITIVE DATA (CRITICAL) ==========
-# API Keys, Tokens, Credentials - NEVER commit these
 .env
-.env.local
-.env.*.local
-imp/
-*_api_key.txt
-*_token.txt
-*_key.txt
-*_password.txt
-*.pem
-*.key
-
-# ========== UPLOADS & DATABASE ==========
-uploads/
-chroma_db/
-bin/
-*.db
-*.sqlite
-*.sqlite3
-.qdrant/
-
-# ========== TEST FILES ==========
-test*.py
-test_*.py
-
-# ========== BACKUP FILES ==========
-*_backup.*
-*.bak
-app_backup.py
-script_backup.js
-style_backup.css
-
-# ========== DEPLOYMENT (LOCAL ONLY) ==========
-deploy_to_hf.bat
-deploy_to_hf.sh
-6.0.0/
-New*
-
-# ========== LOGS ==========
-*.log
-logs/
-
-# ========== PYTHON ==========
 __pycache__/
-venv/
-env/
 *.pyc
 *.pyo
-.pytest_cache/
-.coverage
-
-# ========== IDE ==========
+.DS_Store
+chroma_db/
+uploads/
+*.log
+venv/
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
-
-# ========== OS ==========
-.DS_Store
-Thumbs.db
-
-# ========== ALLOWED TXT FILES (exceptions) ==========
-!requirements.txt
-!requirements_updated.txt
-!requirements_hf.txt 
+*.db
+*.sqlite
+bin/
+imp/
+.continue/
