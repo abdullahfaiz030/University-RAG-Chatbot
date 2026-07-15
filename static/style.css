@@ -2138,3 +2138,53 @@ li {
     color: var(--primary);
     transform: scale(1.05);
 }
+
+/* ============ DARK MODE CHAT BUBBLE & COMPONENT OVERRIDES ============ */
+.dark-theme .bot-message .message-bubble {
+    background: var(--surface-light) !important;
+    border-color: var(--border) !important;
+    color: var(--text) !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25) !important;
+}
+
+.dark-theme .code-block-wrapper {
+    background: var(--surface) !important;
+    border-color: var(--border) !important;
+}
+
+.dark-theme .code-block-header {
+    background: var(--surface-warm) !important;
+    border-bottom: 1px solid var(--border) !important;
+}
+
+.dark-theme .code-block-wrapper pre code {
+    color: var(--text) !important;
+}
+
+.dark-theme .inline-code {
+    background: rgba(255, 255, 255, 0.1) !important;
+    color: #60a5fa !important;
+}
+
+.dark-theme .message-sources {
+    border-top: 1px solid var(--border) !important;
+}
+
+.dark-theme .chart-wrapper {
+    background: var(--surface) !important;
+    border-color: var(--border) !important;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2) !important;
+}
+
+.dark-theme .chip {
+    background: var(--surface-light) !important;
+    border-color: var(--border) !important;
+    color: #60a5fa !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+}
+
+.dark-theme .chip:hover {
+    background: var(--primary) !important;
+    border-color: var(--primary) !important;
+    color: white !important;
+}
