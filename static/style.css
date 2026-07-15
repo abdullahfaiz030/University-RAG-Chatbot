@@ -2188,3 +2188,26 @@ li {
     border-color: var(--primary) !important;
     color: white !important;
 }
+
+.dark-theme .chat-tabs {
+    background: var(--surface) !important;
+    border-bottom: 1.5px solid var(--border) !important;
+}
+
+.dark-theme .tab-btn:hover {
+    background: var(--surface-light) !important;
+}
+
+.dark-theme .tab-btn.active {
+    background: var(--primary) !important;
+    color: white !important;
+}
+
+.dark-theme .chat-input-area {
+    background: var(--surface) !important;
+    border-top: 1.5px solid var(--border) !important;
+}
+
+.dark-theme .input-wrapper {
+    border-color: var(--border) !important;
+}
