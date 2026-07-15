@@ -2211,3 +2211,120 @@ li {
 .dark-theme .input-wrapper {
     border-color: var(--border) !important;
 }
+
+.studyplan-overview-card {
+    background: linear-gradient(135deg, #dbeafe, #e0f2fe);
+    border: 1.5px solid #bfdbfe;
+}
+.studyplan-card {
+    background: var(--surface);
+    border: 1.5px solid #dbeafe;
+}
+.studyplan-badge {
+    background: #ffffff;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    border: 1px solid rgba(0, 0, 0, 0.05);
+}
+.studyplan-badge.primary-badge {
+    color: var(--primary);
+}
+.studyplan-badge.success-badge {
+    color: var(--success);
+}
+.studyplan-subject-card {
+    border: 1.5px solid #dbeafe;
+}
+.studyplan-subject-tip {
+    color: var(--primary);
+    background: rgba(37, 99, 235, 0.05);
+}
+.studyplan-week-item {
+    border-bottom: 1px solid #dbeafe;
+}
+.studyplan-revision-card {
+    background: linear-gradient(135deg,#f0fdf4,#dcfce7);
+    border: 1.5px solid #bbf7d0;
+}
+.studyplan-revision-card h4 {
+    color: #059669;
+}
+.studyplan-tips-card {
+    background: linear-gradient(135deg,#fef3c7,#fde68a);
+    border: 1.5px solid #fcd34d;
+}
+.studyplan-tips-card h4 {
+    color: #d97706;
+}
+
+/* Dark theme overrides */
+.dark-theme .studyplan-overview-card {
+    background: linear-gradient(135deg, var(--surface-light), var(--surface)) !important;
+    border-color: var(--border) !important;
+    color: var(--text) !important;
+}
+.dark-theme .studyplan-card {
+    background: var(--surface) !important;
+    border-color: var(--border) !important;
+}
+.dark-theme .studyplan-badge {
+    background: var(--surface-light) !important;
+    border-color: var(--border) !important;
+}
+.dark-theme .studyplan-badge.primary-badge {
+    color: #60a5fa !important;
+}
+.dark-theme .studyplan-badge.success-badge {
+    color: #34d399 !important;
+}
+.dark-theme .studyplan-subject-card {
+    border-color: var(--border) !important;
+}
+.dark-theme .studyplan-subject-tip {
+    color: #60a5fa !important;
+    background: rgba(96, 165, 250, 0.08) !important;
+}
+.dark-theme .studyplan-week-item {
+    border-color: var(--border) !important;
+}
+.dark-theme .studyplan-week-item > div:first-child {
+    color: #60a5fa !important;
+}
+.dark-theme .studyplan-revision-card {
+    background: linear-gradient(135deg, rgba(5, 150, 105, 0.1), rgba(4, 120, 87, 0.05)) !important;
+    border-color: rgba(5, 150, 105, 0.3) !important;
+}
+.dark-theme .studyplan-revision-card h4 {
+    color: #34d399 !important;
+}
+.dark-theme .studyplan-tips-card {
+    background: linear-gradient(135deg, rgba(217, 119, 6, 0.1), rgba(180, 83, 9, 0.05)) !important;
+    border-color: rgba(217, 119, 6, 0.3) !important;
+}
+.dark-theme .studyplan-tips-card h4 {
+    color: #fbbf24 !important;
+}
+
+/* Flashcards Dark Mode overrides */
+.dark-theme .card-front {
+    background: linear-gradient(145deg, var(--surface-light) 0%, var(--surface-warm) 100%) !important;
+    border-color: var(--border) !important;
+}
+.dark-theme .card-back {
+    background: linear-gradient(145deg, #064e3b 0%, #022c22 100%) !important;
+    border-color: #047857 !important;
+}
+.dark-theme .card-text {
+    color: var(--text) !important;
+}
+.dark-theme .card-front .card-tag {
+    color: #60a5fa !important;
+}
+.dark-theme .card-back .card-tag {
+    color: #34d399 !important;
+}
+.dark-theme .card-hint {
+    color: var(--text-secondary) !important;
+}
