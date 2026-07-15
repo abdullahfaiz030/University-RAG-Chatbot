@@ -36,7 +36,8 @@ function createSidebarOverlay() {
     sidebarOverlay = document.createElement('div');
     sidebarOverlay.className = 'sidebar-overlay';
     sidebarOverlay.onclick = closeSidebar;
-    document.body.appendChild(sidebarOverlay);
+    const container = document.querySelector('.app-container') || document.body;
+    container.appendChild(sidebarOverlay);
 }
 
 function closeSidebar() {

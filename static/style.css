@@ -1606,7 +1606,7 @@ li {
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.5);
-    z-index: 49;
+    z-index: 9998 !important;
     opacity: 0;
     transition: opacity 0.3s ease;
     pointer-events: none;
@@ -1635,7 +1635,7 @@ li {
         border-top: none;
         border-bottom: none;
         border-left: none;
-        z-index: 50;
+        z-index: 9999 !important;
         transition: left 0.3s ease;
     }
 
