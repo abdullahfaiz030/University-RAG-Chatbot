@@ -328,6 +328,18 @@ function initializeApp() {
     initSpeechRecognition();
     loadSessionsFromStorage();
     checkSystemStatus();
+
+    // Sync length selects (header & sidebar settings)
+    const headerSelect = document.getElementById('lengthSelect');
+    const sidebarSelect = document.getElementById('sidebarLengthSelect');
+    if (headerSelect && sidebarSelect) {
+        headerSelect.addEventListener('change', function() {
+            sidebarSelect.value = headerSelect.value;
+        });
+        sidebarSelect.addEventListener('change', function() {
+            headerSelect.value = sidebarSelect.value;
+        });
+    }
 }
 
 document.addEventListener('DOMContentLoaded', initializeApp);

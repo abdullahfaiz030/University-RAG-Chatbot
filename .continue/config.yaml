@@ -1,0 +1,52 @@
+models:
+  - title: DeepSeek Chat
+    name: deepseek-chat
+    provider: openai
+    model: deepseek-chat
+    apiKey: sk-d3a28cb91bf544e2ad6a56359fff49ad
+    apiBase: https://api.deepseek.com/v1
+    contextLength: 128000
+    maxStopSequences: 4
+    completionOptions:
+      temperature: 0.7
+      topP: 0.95
+      topK: 40
+      maxTokens: 2048
+
+  - title: DeepSeek Coder
+    name: deepseek-coder
+    provider: openai
+    model: deepseek-coder
+    apiKey: sk-d3a28cb91bf544e2ad6a56359fff49ad
+    apiBase: https://api.deepseek.com/v1
+    contextLength: 16000
+    completionOptions:
+      temperature: 0.8
+      maxTokens: 4096
+
+tabAutocompleteModel:
+  title: DeepSeek Coder
+  name: deepseek-coder
+  provider: openai
+  model: deepseek-coder
+  apiKey: sk-d3a28cb91bf544e2ad6a56359fff49ad
+  apiBase: https://api.deepseek.com/v1
+  contextLength: 16000
+embeddingsProvider:
+  provider: ollama
+  serverUrl: http://localhost:11434
+  model: nomic-embed-text
+slashCommands:
+  - name: edit
+    description: Edit highlighted code
+  - name: comment
+    description: Add code comments
+  - name: share
+    description: Share code snippet
+customCommands:
+  - name: test
+    prompt: Write unit tests for this code
+  - name: optimize
+    prompt: Optimize this code for better performance
+  - name: document
+    prompt: Add comprehensive documentation to this code

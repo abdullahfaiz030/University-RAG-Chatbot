@@ -140,6 +140,15 @@ def init_db():
         )
     ''')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_session_id ON messages(session_id)')
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    ''')
     conn.commit()
     conn.close()
 
@@ -918,13 +927,29 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login_page():
     if request.method == 'POST':
-        if users_collection is None:
-            return jsonify({'success': False, 'message': 'User system not available'}), 500
         data = request.json or {}
         email = data.get('email', '').strip().lower()
         password = data.get('password', '')
         if not email or not password:
             return jsonify({'success': False, 'message': 'Email and password required'}), 400
+        
+        if users_collection is None:
+            # SQLite fallback
+            try:
+                conn = get_db_connection()
+                cursor = conn.cursor()
+                cursor.execute('SELECT id, name, email, password_hash FROM users WHERE email = ?', (email,))
+                user_row = cursor.fetchone()
+                conn.close()
+                if user_row and check_password_hash(user_row[3], password):
+                    session.permanent = True
+                    session['student_user'] = {'id': str(user_row[0]), 'email': user_row[2], 'name': user_row[1]}
+                    return jsonify({'success': True})
+            except Exception as e:
+                print(f"SQLite login error: {e}")
+                return jsonify({'success': False, 'message': 'Database error'}), 500
+            return jsonify({'success': False, 'message': 'Invalid email or password'}), 401
+            
         try:
             user = users_collection.find_one({'email': email})
             if user and check_password_hash(user['password_hash'], password):
@@ -941,8 +966,6 @@ def login_page():
 @app.route('/signup', methods=['GET', 'POST'])
 def signup_page():
     if request.method == 'POST':
-        if users_collection is None:
-            return jsonify({'success': False, 'message': 'User system not available'}), 500
         data = request.json or {}
         name = data.get('name', '').strip()
         email = data.get('email', '').strip().lower()
@@ -951,6 +974,29 @@ def signup_page():
             return jsonify({'success': False, 'message': 'All fields required'}), 400
         if len(password) < 6:
             return jsonify({'success': False, 'message': 'Password must be 6+ characters'}), 400
+            
+        if users_collection is None:
+            # SQLite fallback
+            try:
+                conn = get_db_connection()
+                cursor = conn.cursor()
+                cursor.execute('SELECT id FROM users WHERE email = ?', (email,))
+                if cursor.fetchone():
+                    conn.close()
+                    return jsonify({'success': False, 'message': 'Email already registered'}), 400
+                
+                cursor.execute(
+                    'INSERT INTO users (name, email, password_hash, created_at) VALUES (?, ?, ?, ?)',
+                    (name, email, generate_password_hash(password), datetime.utcnow().isoformat())
+                )
+                conn.commit()
+                conn.close()
+                print(f"✅ New student (SQLite): {name} ({email})")
+                return jsonify({'success': True, 'message': 'Registration successful! Please login.'})
+            except Exception as e:
+                print(f"SQLite signup error: {e}")
+                return jsonify({'success': False, 'message': 'Registration failed.'}), 500
+                
         try:
             if users_collection.find_one({'email': email}):
                 return jsonify({'success': False, 'message': 'Email already registered'}), 400

@@ -1521,6 +1521,85 @@ li {
     gap: 12px;
 }
 
+/* ============ SIDEBAR CONFIGURATION ============ */
+.sidebar-config {
+    padding: 16px 20px;
+    border-top: 1.5px solid var(--border-light);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+@media (min-width: 769px) {
+    .sidebar-config {
+        display: none !important;
+    }
+}
+.sidebar-config-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.sidebar-config-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.sidebar-config-item label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+.sidebar-select {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--surface-light);
+    border: 1.5px solid var(--border);
+    color: var(--text);
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 500;
+    outline: none;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+.sidebar-select:hover {
+    border-color: var(--primary-light);
+}
+.dark-theme .sidebar-select {
+    background: var(--surface-light);
+    border-color: var(--border);
+}
+.sidebar-select option {
+    background: var(--surface);
+    color: var(--text);
+}
+.sidebar-export-btn {
+    width: 100%;
+    padding: 10px;
+    background: transparent;
+    border: 1.5px solid var(--border);
+    color: var(--text-secondary);
+    border-radius: 50px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+}
+.sidebar-export-btn:hover {
+    background: rgba(37, 99, 235, 0.05);
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
 /* ============ SIDEBAR OVERLAY ============ */
 .sidebar-overlay {
     display: none;
@@ -1595,28 +1674,41 @@ li {
     }
 
     .header-actions {
-        gap: 5px;
+        gap: 8px;
     }
 
     .header-actions .length-select {
-        min-width: 65px;
-        padding: 5px 8px;
-        font-size: 11px;
+        display: none !important;
     }
 
-    .header-actions .export-btn-header,
-    .header-actions .voice-output-toggle,
+    .header-actions .export-btn-header {
+        display: none !important;
+    }
+
     .header-actions .logout-header-btn {
-        width: 34px;
-        height: 34px;
-        font-size: 13px;
-        transform: none !important;
+        display: none !important;
+    }
+
+    .header-actions .voice-output-toggle {
+        width: 36px;
+        height: 36px;
+        font-size: 14px;
     }
 
     .header-actions .new-chat-btn {
-        padding: 6px 12px;
-        font-size: 11px;
-        transform: none !important;
+        padding: 0;
+        width: 36px;
+        height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50% !important;
+        font-size: 0 !important;
+    }
+
+    .header-actions .new-chat-btn i {
+        font-size: 14px !important;
+        margin: 0 !important;
     }
 
     .message {
@@ -1648,15 +1740,30 @@ li {
     }
 
     .chat-tabs {
-        padding: 4px 8px;
+        padding: 8px 12px;
         overflow-x: auto;
+        white-space: nowrap;
+        -webkit-overflow-scrolling: touch;
+        display: flex;
+        gap: 8px;
+        border-bottom: 1.5px solid var(--border-light);
+        -ms-overflow-style: none;  /* IE and Edge */
+        scrollbar-width: none;  /* Firefox */
+    }
+
+    .chat-tabs::-webkit-scrollbar {
+        display: none; /* Hide scrollbar for Chrome, Safari and Opera */
     }
 
     .tab-btn {
-        padding: 8px 12px;
-        font-size: 11px;
-        flex: 1;
+        padding: 10px 16px;
+        font-size: 13px;
+        flex: 0 0 auto !important;
+        display: inline-flex;
+        align-items: center;
         justify-content: center;
+        border-radius: 50px;
+        white-space: nowrap;
     }
 
     .chat-input-area {

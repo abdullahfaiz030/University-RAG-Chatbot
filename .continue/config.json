@@ -1,0 +1,42 @@
+{
+  "models": [
+    {
+      "name": "deepseek-chat",
+      "title": "DeepSeek Chat",
+      "provider": "openai",
+      "model": "deepseek-chat",
+      "apiKey": "sk-d3a28cb91bf544e2ad6a56359fff49ad",
+      "apiBase": "https://api.deepseek.com/v1",
+      "contextLength": 128000,
+      "maxStopSequences": 4,
+      "completionOptions": {
+        "temperature": 0.7,
+        "topP": 0.95,
+        "topK": 40,
+        "maxTokens": 2048
+      }
+    },
+    {
+      "name": "deepseek-coder",
+      "title": "DeepSeek Coder",
+      "provider": "openai",
+      "model": "deepseek-coder",
+      "apiKey": "sk-d3a28cb91bf544e2ad6a56359fff49ad",
+      "apiBase": "https://api.deepseek.com/v1",
+      "contextLength": 16000,
+      "completionOptions": {
+        "temperature": 0.8,
+        "maxTokens": 4096
+      }
+    }
+  ],
+  "tabAutocompleteModel": {
+    "name": "deepseek-coder",
+    "title": "DeepSeek Coder",
+    "provider": "openai",
+    "model": "deepseek-coder",
+    "apiKey": "sk-d3a28cb91bf544e2ad6a56359fff49ad",
+    "apiBase": "https://api.deepseek.com/v1",
+    "contextLength": 16000
+  }
+}

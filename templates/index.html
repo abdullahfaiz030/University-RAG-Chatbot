@@ -24,6 +24,18 @@
                         class="fas fa-plus"></i> New</button>
             </div>
             <div class="sessions-list" id="sessionsList"></div>
+            <div class="sidebar-config" id="sidebarConfig">
+                <div class="sidebar-config-title"><i class="fas fa-cog"></i> Settings</div>
+                <div class="sidebar-config-item">
+                    <label for="sidebarLengthSelect"><i class="fas fa-sliders-h"></i> Response Length</label>
+                    <select id="sidebarLengthSelect" class="sidebar-select">
+                        <option value="medium">📏 Medium</option>
+                        <option value="short">⚡ Short</option>
+                        <option value="detailed">📚 Detailed</option>
+                    </select>
+                </div>
+                <button class="sidebar-export-btn" onclick="exportCurrentChat()" title="Export Chat"><i class="fas fa-download"></i> Export Chat</button>
+            </div>
             <div class="sidebar-footer">
                 <button class="clear-history-btn" onclick="clearAllSessions()" title="Clear All History"><i
                         class="fas fa-trash-alt"></i> Clear History</button>
