@@ -36,6 +36,10 @@
                     <i class="fas fa-chart-pie"></i>
                     <span>Stats</span>
                 </a>
+                <a href="#sync" class="nav-item" onclick="showSection('sync')">
+                    <i class="fas fa-sync-alt"></i>
+                    <span>Website Sync</span>
+                </a>
             </nav>
 
             <div class="sidebar-footer">
@@ -240,6 +244,41 @@
                             <i class="fas fa-spinner fa-spin"></i>
                             <p>Building tree...</p>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Website Sync Section -->
+            <div id="sync-section" class="content-section">
+                <div class="section-header">
+                    <div>
+                        <h2><i class="fas fa-sync-alt"></i> University Website Sync</h2>
+                        <p>Automatically crawl the university website (seu.ac.lk) to update the chatbot's knowledge base.</p>
+                    </div>
+                </div>
+
+                <div class="upload-container" style="padding: 24px; text-align: center;">
+                    <div style="font-size: 48px; color: var(--primary-light); margin-bottom: 16px;">
+                        <i class="fas fa-globe-asia"></i>
+                    </div>
+                    <h3 style="font-size: 16px; margin-bottom: 8px;">Synchronize Live Website Data</h3>
+                    <p style="color: var(--text-secondary); max-width: 500px; margin: 0 auto 24px; font-size: 13px; line-height: 1.5;">
+                        This will crawl the official SEUSL website in the background, extract content from major pages and faculties, and automatically sync it with the chatbot. This keeps the chatbot up to date with any changes on the university site.
+                    </p>
+
+                    <div style="margin: 20px 0; display: inline-flex; flex-direction: column; align-items: center;">
+                        <div id="syncStatusBox" style="font-size: 13px; font-weight: 500; margin-bottom: 12px; padding: 6px 12px; border-radius: 20px; background: var(--surface-light); border: 1px solid var(--border);">
+                            Status: <span id="syncStatusText">Loading...</span>
+                        </div>
+                        <div id="syncCountBox" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 16px;">
+                            Indexed Pages: <span id="syncCountText">0</span> chunks
+                        </div>
+                    </div>
+
+                    <div>
+                        <button class="upload-btn" id="startSyncBtn" onclick="triggerWebsiteSync()" style="margin: 0 auto; max-width: 250px; background: var(--primary-light);">
+                            <i class="fas fa-sync-alt"></i> Sync Now
+                        </button>
                     </div>
                 </div>
             </div>

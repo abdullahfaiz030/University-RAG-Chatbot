@@ -17,11 +17,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Restore last active section or check URL hash
     const hash = window.location.hash.replace('#', '');
-    if (hash && ['upload', 'documents', 'browse', 'stats'].includes(hash)) {
+    if (hash && ['upload', 'documents', 'browse', 'stats', 'sync'].includes(hash)) {
         navigateToSection(hash, false);
     } else {
         const savedSection = sessionStorage.getItem('adminCurrentSection');
-        if (savedSection && ['upload', 'documents', 'browse', 'stats'].includes(savedSection)) {
+        if (savedSection && ['upload', 'documents', 'browse', 'stats', 'sync'].includes(savedSection)) {
             navigateToSection(savedSection, false);
         }
     }
@@ -93,6 +93,7 @@ function navigateToSection(sectionName, addToHistory) {
         loadFolderStructure().then(() => renderBrowseView());
     }
     if (sectionName === 'stats') loadStats();
+    if (sectionName === 'sync') loadSyncStatus();
 }
 
 // Keep old showSection for backward compatibility
@@ -729,3 +730,76 @@ function showToast(message) {
     document.body.appendChild(toast);
     setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; setTimeout(() => toast.remove(), 300); }, 2000);
 }
+
+// ============ WEBSITE SYNC SECTION ============
+
+let syncPollingInterval = null;
+
+function loadSyncStatus() {
+    fetch('/admin/sync-status')
+        .then(res => res.json())
+        .then(data => {
+            const statusText = document.getElementById('syncStatusText');
+            const countText = document.getElementById('syncCountText');
+            const startBtn = document.getElementById('startSyncBtn');
+            
+            if (countText) countText.innerText = data.crawler_chunks;
+            
+            if (statusText && startBtn) {
+                if (data.sync_in_progress) {
+                    statusText.innerText = "Sync in progress...";
+                    statusText.style.color = "#6366f1";
+                    startBtn.disabled = true;
+                    startBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Syncing...';
+                    
+                    // Start polling if not already
+                    if (!syncPollingInterval) {
+                        syncPollingInterval = setInterval(loadSyncStatus, 5000);
+                    }
+                } else {
+                    statusText.innerText = "Idle";
+                    statusText.style.color = "var(--text-secondary)";
+                    startBtn.disabled = false;
+                    startBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Sync Now';
+                    
+                    // Stop polling
+                    if (syncPollingInterval) {
+                        clearInterval(syncPollingInterval);
+                        syncPollingInterval = null;
+                    }
+                }
+            }
+        })
+        .catch(err => console.error("Error loading sync status:", err));
+}
+
+function triggerWebsiteSync() {
+    const startBtn = document.getElementById('startSyncBtn');
+    if (startBtn) {
+        startBtn.disabled = true;
+        startBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
+    }
+    
+    fetch('/admin/sync-website', { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                showToast("Background website sync started!");
+                loadSyncStatus();
+            } else {
+                showToast("Error: " + data.message);
+                loadSyncStatus();
+            }
+        })
+        .catch(err => {
+            console.error("Error triggering website sync:", err);
+            showToast("Failed to start sync.");
+            loadSyncStatus();
+        });
+}
+
+// Call on load sync section
+document.addEventListener('DOMContentLoaded', () => {
+    // Add to initial loaders
+    loadSyncStatus();
+});

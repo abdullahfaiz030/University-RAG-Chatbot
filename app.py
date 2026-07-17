@@ -1301,37 +1301,6 @@ def search_past_papers():
         'related_topics': relevant_topics[:5]
     })
 
-@app.route('/test-search')
-def test_search():
-    query = request.args.get('q', 'site:seu.ac.lk dean faculty applied sciences')
-    
-    # Test full search_web pipeline
-    results = search_web(query)
-    
-    # Test components individually for debug logging
-    ddg_res = None
-    ddg_err = None
-    try:
-        ddg_res = search_duckduckgo(query)
-    except Exception as e:
-        ddg_err = str(e)
-        
-    any_res = None
-    any_err = None
-    try:
-        any_res = search_anysearch(query)
-    except Exception as e:
-        any_err = str(e)
-        
-    return jsonify({
-        'query': query,
-        'search_web_results': results,
-        'duckduckgo_results': ddg_res,
-        'duckduckgo_err': ddg_err,
-        'anysearch_results': any_res,
-        'anysearch_err': any_err
-    })
-
 @app.route('/chat', methods=['POST'])
 @login_required
 def chat():
@@ -1986,6 +1955,85 @@ def get_admin_stats():
     user_count = safe_mongo_count(users_collection)
     past_paper_count = len(past_paper_analysis)
     return jsonify({'success': True, 'total_documents': doc_count, 'total_chunks': doc_count, 'total_users': user_count, 'past_papers_analyzed': past_paper_count})
+
+sync_in_progress = False
+
+@app.route('/admin/sync-website', methods=['POST'])
+@admin_required
+def admin_sync_website():
+    global sync_in_progress
+    if sync_in_progress:
+        return jsonify({'success': False, 'message': 'Sync already in progress.'}), 400
+        
+    def perform_sync():
+        global sync_in_progress
+        sync_in_progress = True
+        try:
+            from crawler_helper import sync_university_website
+            sync_university_website(qdrant_client, embedding_model, max_pages=40)
+        finally:
+            sync_in_progress = False
+            
+    import threading
+    threading.Thread(target=perform_sync, daemon=True).start()
+    return jsonify({'success': True, 'message': 'Sync started in the background.'})
+
+@app.route('/admin/sync-status')
+@admin_required
+def admin_sync_status():
+    global sync_in_progress, qdrant_client
+    crawler_count = 0
+    if qdrant_client:
+        try:
+            from qdrant_client.http import models as qdrant_models
+            count_res = qdrant_client.count(
+                collection_name="university_notes",
+                count_filter=qdrant_models.Filter(
+                    must=[
+                        qdrant_models.FieldCondition(
+                            key="source",
+                            match=qdrant_models.MatchValue(value="website_crawler")
+                        )
+                    ]
+                )
+            )
+            crawler_count = count_res.count
+        except Exception as e:
+            print(f"Error getting sync status count: {e}")
+    return jsonify({
+        'sync_in_progress': sync_in_progress,
+        'crawler_chunks': crawler_count
+    })
+
+def run_initial_sync():
+    import time
+    time.sleep(15)  # Wait for server startup
+    global qdrant_client, embedding_model
+    if qdrant_client and embedding_model:
+        try:
+            from qdrant_client.http import models as qdrant_models
+            count_res = qdrant_client.count(
+                collection_name="university_notes",
+                count_filter=qdrant_models.Filter(
+                    must=[
+                        qdrant_models.FieldCondition(
+                            key="source",
+                            match=qdrant_models.MatchValue(value="website_crawler")
+                        )
+                    ]
+                )
+            )
+            if count_res.count == 0:
+                print("🔄 [Startup] No university crawled documents found. Starting background crawl...")
+                from crawler_helper import sync_university_website
+                sync_university_website(qdrant_client, embedding_model, max_pages=35)
+            else:
+                print(f"ℹ️ [Startup] Found {count_res.count} existing university crawler chunks. Skipping sync.")
+        except Exception as e:
+            print(f"⚠️ [Startup] Error checking Qdrant for crawler data: {e}")
+
+import threading
+threading.Thread(target=run_initial_sync, daemon=True).start()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 7860))
