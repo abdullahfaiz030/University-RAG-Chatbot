@@ -570,13 +570,40 @@ def search_anysearch(query):
 
 def search_web(query):
     all_results = []
-    ddg_results = search_duckduckgo(query)
-    if ddg_results: all_results.extend(ddg_results)
-    wiki_results = search_wikipedia(query)
-    if wiki_results: all_results.extend(wiki_results)
+    
+    user_lower = query.lower()
+    words = user_lower.split()
+    is_university_query = 'seu' in words or 'seusl' in words or 'south eastern university' in user_lower or 'seu.ac.lk' in user_lower or 'seu ac lk' in user_lower
+    
+    search_query = query
+    if is_university_query:
+        # Restrict the web search strictly to the official university website
+        search_query = f"site:seu.ac.lk {query}"
+        
+    ddg_results = search_duckduckgo(search_query)
+    if ddg_results:
+        all_results.extend(ddg_results)
+    elif is_university_query:
+        # Fallback to keyword-based search if strict domain search yields nothing
+        fallback_results = search_duckduckgo(f"seu.ac.lk {query}")
+        if fallback_results:
+            all_results.extend(fallback_results)
+            
+    # Wikipedia is only useful for general terms, not university-specific pages
+    if not is_university_query:
+        wiki_results = search_wikipedia(query)
+        if wiki_results:
+            all_results.extend(wiki_results)
+            
     if len(all_results) < 2:
-        any_results = search_anysearch(query)
-        if any_results: all_results.extend(any_results)
+        any_results = search_anysearch(search_query)
+        if any_results:
+            all_results.extend(any_results)
+        elif is_university_query:
+            fallback_any = search_anysearch(f"seu.ac.lk {query}")
+            if fallback_any:
+                all_results.extend(fallback_any)
+                
     return all_results if all_results else None
 
 def analyze_sentiment(text):
@@ -594,6 +621,12 @@ def analyze_sentiment(text):
 
 def needs_real_time_info(user_message):
     user_lower = user_message.lower()
+    
+    # Force real-time search if the query is about South Eastern University of Sri Lanka (SEUSL)
+    words = user_lower.split()
+    if 'seu' in words or 'seusl' in words or 'south eastern university' in user_lower or 'seu.ac.lk' in user_lower or 'seu ac lk' in user_lower:
+        return True
+        
     real_time_indicators = ['current', 'latest', 'today', 'now', '2024', '2025', '2026', 'president', 'prime minister', 'election', 'news', 'recent', 'weather', 'stock', 'price', 'score', 'live', 'update', 'who is the', 'who is current', 'currently', 'right now', 'who is president', 'who is prime minister', 'who leads', 'leader of', 'head of state', 'who governs', 'what is the capital', 'population of', 'weather in']
     return any(indicator in user_lower for indicator in real_time_indicators)
 
@@ -744,6 +777,9 @@ def get_aggregated_topic_rankings():
 def build_chat_context(user_message, session_id, length_control='medium', uploaded_context="", uploaded_filenames=None):
     user_lower = user_message.lower().strip()
     sentiment = analyze_sentiment(user_message)
+    
+    words = user_lower.split()
+    is_university_query = 'seu' in words or 'seusl' in words or 'south eastern university' in user_lower or 'seu.ac.lk' in user_lower or 'seu ac lk' in user_lower
 
     follow_up_phrases = ['explain more', 'tell me more', 'give me more', 'elaborate', 'what about', 'can you explain', 'go deeper', 'more details', 'more explanation', 'expand', 'further', 'in detail', 'what else', 'continue', 'and then', 'why is that', 'how does that', 'can you clarify', 'what does that mean', 'explain it', 'describe it', 'tell about it', 'what is it', 'tell me about it', 'elaborate on that', 'go on']
     is_follow_up = any(phrase in user_lower for phrase in follow_up_phrases) and len(user_message.split()) <= 8
@@ -838,8 +874,12 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
         user_prompt = f"User seems confused: {user_message}\n\nPatient, helpful response:"; max_tokens = 150
     elif web_results:
         web_context = "".join([f"📰 {r.get('title', '')}: {r.get('snippet', '')}\n\n" for r in web_results[:3]])
-        system_prompt = "You are a helpful AI with web access. Answer in 1-3 SHORT sentences. Be direct."
-        user_prompt = f"Web results:\n{web_context}\n\nQuestion: {user_message}\n\nShort answer:"; max_tokens = 120
+        if is_university_query:
+            system_prompt = "You are the AI Learning Assistant of South Eastern University of Sri Lanka (SEUSL). Answer the question using the provided official university web pages. Be helpful, accurate, and professional."
+            user_prompt = f"Web results from SEUSL website:\n{web_context}\n\nQuestion: {user_message}\n\nAnswer:"; max_tokens = 300
+        else:
+            system_prompt = "You are a helpful AI with web access. Answer in 1-3 SHORT sentences. Be direct."
+            user_prompt = f"Web results:\n{web_context}\n\nQuestion: {user_message}\n\nShort answer:"; max_tokens = 120
     elif is_follow_up and doc_context:
         system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP about: '{previous_topic}'. Expand on it. 3-5 sentences. NEVER mention notes or documents."
         user_prompt = f"Reference about '{previous_topic}':\n{doc_context[:500]}\n\nUser: {user_message}\n\nExpand on '{previous_topic}':"; max_tokens = 200
