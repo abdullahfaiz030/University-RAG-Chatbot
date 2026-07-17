@@ -318,6 +318,17 @@ try:
         else:
             info = qdrant_client.get_collection("university_notes")
             print(f"✅ Qdrant connected ({info.points_count} documents)")
+            
+        # Ensure payload index for 'source' is created
+        try:
+            qdrant_client.create_payload_index(
+                collection_name="university_notes",
+                field_name="source",
+                field_schema="keyword"
+            )
+            print("✅ Created Qdrant payload index for 'source'")
+        except Exception as e:
+            print(f"⚠️ Could not create Qdrant payload index: {e}")
     else:
         print("⚠️ Qdrant credentials not found")
 except Exception as e:
