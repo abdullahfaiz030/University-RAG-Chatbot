@@ -1301,6 +1301,15 @@ def search_past_papers():
         'related_topics': relevant_topics[:5]
     })
 
+@app.route('/test-search')
+def test_search():
+    query = request.args.get('q', 'site:seu.ac.lk dean faculty applied sciences')
+    results = search_duckduckgo(query)
+    return jsonify({
+        'query': query,
+        'results': results
+    })
+
 @app.route('/chat', methods=['POST'])
 @login_required
 def chat():
