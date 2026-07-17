@@ -1173,10 +1173,16 @@ function prevCard() {
 
 document.addEventListener('keydown', function (e) {
     if (currentTab !== 'flashcards') return;
-    if (document.activeElement === document.getElementById('flashcardTopic')) {
-        if (e.key === 'Enter') { e.preventDefault(); generateFlashcards(); }
+    
+    // Ignore key intercepts if the user is typing in any input, textarea, or contenteditable element
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
+        if (e.target.id === 'flashcardTopic' && e.key === 'Enter') {
+            e.preventDefault();
+            generateFlashcards();
+        }
         return;
     }
+    
     if (e.key === ' ') { e.preventDefault(); flipCard(); }
     else if (e.key === 'ArrowRight') { e.preventDefault(); nextCard(); }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); prevCard(); }

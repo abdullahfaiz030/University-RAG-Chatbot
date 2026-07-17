@@ -2209,7 +2209,14 @@ li {
 }
 
 .dark-theme .input-wrapper {
+    background: var(--surface-light) !important;
     border-color: var(--border) !important;
+}
+
+.dark-theme .input-wrapper:focus-within {
+    background: var(--surface-warm) !important;
+    border-color: var(--primary-light) !important;
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.25) !important;
 }
 
 .studyplan-overview-card {
