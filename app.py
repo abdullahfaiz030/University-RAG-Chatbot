@@ -1312,52 +1312,6 @@ def search_past_papers():
         'related_topics': relevant_topics[:5]
     })
 
-@app.route('/debug-sync')
-def debug_sync():
-    global qdrant_client
-    crawler_count = 0
-    doc_titles = []
-    error = None
-    if qdrant_client:
-        try:
-            from qdrant_client.http import models as qdrant_models
-            count_res = qdrant_client.count(
-                collection_name="university_notes",
-                count_filter=qdrant_models.Filter(
-                    must=[
-                        qdrant_models.FieldCondition(
-                            key="source",
-                            match=qdrant_models.MatchValue(value="website_crawler")
-                        )
-                    ]
-                )
-            )
-            crawler_count = count_res.count
-            
-            scroll_res = qdrant_client.scroll(
-                collection_name="university_notes",
-                limit=30,
-                with_payload=True,
-                with_vectors=False
-            )
-            points = scroll_res[0]
-            for p in points:
-                doc_titles.append({
-                    "id": p.id,
-                    "filename": p.payload.get("filename"),
-                    "source": p.payload.get("source"),
-                    "url": p.payload.get("url")
-                })
-        except Exception as e:
-            error = str(e)
-            
-    return jsonify({
-        'qdrant_connected': bool(qdrant_client),
-        'crawler_chunks_count': crawler_count,
-        'sample_documents': doc_titles,
-        'error': error
-    })
-
 @app.route('/chat', methods=['POST'])
 @login_required
 def chat():
