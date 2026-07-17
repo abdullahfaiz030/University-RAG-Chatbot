@@ -1305,51 +1305,31 @@ def search_past_papers():
 def test_search():
     query = request.args.get('q', 'site:seu.ac.lk dean faculty applied sciences')
     
-    # Run DDGS test
-    ddgs_error = None
+    # Test full search_web pipeline
+    results = search_web(query)
+    
+    # Test components individually for debug logging
     ddg_res = None
+    ddg_err = None
     try:
-        from duckduckgo_search import DDGS
-        with DDGS() as ddgs:
-            ddg_res = list(ddgs.text(query, max_results=3))
+        ddg_res = search_duckduckgo(query)
     except Exception as e:
-        ddgs_error = str(e)
+        ddg_err = str(e)
         
-    # Run HTML scrape test
-    html_status = None
-    html_len = 0
-    html_error = None
-    html_results = []
+    any_res = None
+    any_err = None
     try:
-        import urllib.parse
-        from bs4 import BeautifulSoup
-        url = "https://html.duckduckgo.com/html/"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, ymd:64; rv:109.0) Gecko/20100101 Firefox/115.0"
-        }
-        r = requests.get(url, params={"q": query}, headers=headers, timeout=8)
-        html_status = r.status_code
-        html_len = len(r.text)
-        if r.status_code == 200:
-            soup = BeautifulSoup(r.text, 'html.parser')
-            for a in soup.find_all('a', class_='result__snippet')[:3]:
-                parent = a.parent.parent
-                title_el = parent.find('a', class_='result__url')
-                snippet = a.get_text().strip()
-                title = title_el.get_text().strip() if title_el else "No Title"
-                link = title_el['href'] if title_el and 'href' in title_el.attrs else ""
-                html_results.append({"title": title, "snippet": snippet, "link": link})
+        any_res = search_anysearch(query)
     except Exception as e:
-        html_error = str(e)
+        any_err = str(e)
         
     return jsonify({
         'query': query,
-        'ddg_results': ddg_res,
-        'ddg_error': ddgs_error,
-        'html_status': html_status,
-        'html_len': html_len,
-        'html_error': html_error,
-        'html_results': html_results
+        'search_web_results': results,
+        'duckduckgo_results': ddg_res,
+        'duckduckgo_err': ddg_err,
+        'anysearch_results': any_res,
+        'anysearch_err': any_err
     })
 
 @app.route('/chat', methods=['POST'])
