@@ -536,14 +536,48 @@ def gemini_chat_completion_stream(system_prompt, contents, model="gemini-2.0-fla
 # ========== WEB SEARCH ==========
 
 def search_duckduckgo(query):
+    # Try using the library first
     try:
         from duckduckgo_search import DDGS
         results = []
         with DDGS() as ddgs:
             for r in list(ddgs.text(query, max_results=3)):
                 results.append({"title": r.get("title", ""), "snippet": r.get("body", ""), "link": r.get("href", ""), "source": "DuckDuckGo"})
-        return results if results else None
-    except: return None
+        if results:
+            return results
+    except Exception as e:
+        print(f"DuckDuckGo API error: {e}")
+
+    # Fallback: Scrape html.duckduckgo.com
+    try:
+        import urllib.parse
+        from bs4 import BeautifulSoup
+        url = "https://html.duckduckgo.com/html/"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        r = requests.get(url, params={"q": query}, headers=headers, timeout=8)
+        if r.status_code == 200:
+            soup = BeautifulSoup(r.text, 'html.parser')
+            results = []
+            for a in soup.find_all('a', class_='result__snippet')[:3]:
+                parent = a.parent.parent
+                title_el = parent.find('a', class_='result__url')
+                snippet = a.get_text().strip()
+                title = title_el.get_text().strip() if title_el else "No Title"
+                link = title_el['href'] if title_el and 'href' in title_el.attrs else ""
+                if link.startswith("//"):
+                    link = "https:" + link
+                if "uddg=" in link:
+                    parsed = urllib.parse.urlparse(link)
+                    qs = urllib.parse.parse_qs(parsed.query)
+                    if "uddg" in qs:
+                        link = qs["uddg"][0]
+                results.append({"title": title, "snippet": snippet, "link": link, "source": "DuckDuckGo"})
+            return results if results else None
+    except Exception as e:
+        print(f"DuckDuckGo HTML scrape error: {e}")
+    return None
 
 def search_wikipedia(query):
     try:
