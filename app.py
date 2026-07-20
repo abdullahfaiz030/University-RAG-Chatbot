@@ -390,6 +390,23 @@ def extract_text_from_pdf(file_path):
                     text += page_text + "\n"
     except:
         pass
+        
+    # Fallback to pdfplumber which is highly robust for PowerPoint slide PDFs
+    if len(text.strip()) < 100:
+        try:
+            import pdfplumber
+            with pdfplumber.open(file_path) as pdf:
+                pdf_text = ""
+                for page in pdf.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        pdf_text += page_text + "\n"
+                if len(pdf_text.strip()) > len(text):
+                    text = pdf_text
+        except Exception as e:
+            print(f"pdfplumber error: {e}")
+
+    # Final fallback to OCR tesseract
     if len(text.strip()) < 100:
         try:
             from pdf2image import convert_from_path
