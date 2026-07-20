@@ -2037,14 +2037,24 @@ def get_documents():
     docs = []
     if qdrant_client:
         try:
-            scroll_results = qdrant_client.scroll(collection_name="university_notes", limit=100, with_payload=True, with_vectors=False)
-            seen = set()
+            scroll_results = qdrant_client.scroll(collection_name="university_notes", limit=10000, with_payload=True, with_vectors=False)
+            file_groups = {}
             for point in scroll_results[0]:
                 filename = point.payload.get('filename', '')
-                if filename and filename not in seen:
-                    seen.add(filename)
-                    docs.append({'filename': filename, 'file_type': point.payload.get('file_type', ''), 'category': point.payload.get('category', ''), 'upload_date': point.payload.get('upload_date', ''), 'doc_id': point.id, 'chunks': 1})
-        except: pass
+                if filename:
+                    if filename not in file_groups:
+                        file_groups[filename] = {
+                            'filename': filename,
+                            'file_type': point.payload.get('file_type', filename.split('.')[-1].upper() if '.' in filename else 'WEBPAGE'),
+                            'category': point.payload.get('category', 'Root'),
+                            'upload_date': point.payload.get('upload_date', 'Unknown'),
+                            'doc_id': point.id,
+                            'chunks': 0
+                        }
+                    file_groups[filename]['chunks'] += 1
+            docs = list(file_groups.values())
+        except Exception as e:
+            print(f"Error scrolling documents: {e}")
     return jsonify({'success': True, 'documents': docs})
 
 @app.route('/admin/delete/<doc_id>', methods=['DELETE'])
