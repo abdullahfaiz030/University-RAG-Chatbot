@@ -3,7 +3,7 @@ import requests
 import re
 import uuid
 import time
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, unquote
 from bs4 import BeautifulSoup
 from qdrant_client.http import models as qdrant_models
 from qdrant_client import QdrantClient
@@ -43,7 +43,9 @@ STARTING_PAGES = [
 
 def crawl_and_extract(max_pages=40):
     visited = set()
-    queue = list(STARTING_PAGES)
+    starting_queue = list(STARTING_PAGES)
+    priority_queue = []
+    regular_queue = []
     documents = []
 
     headers = {
@@ -52,8 +54,15 @@ def crawl_and_extract(max_pages=40):
 
     print(f"🚀 Starting crawl of South Eastern University website (limit: {max_pages} pages)")
 
-    while queue and len(visited) < max_pages:
-        url = queue.pop(0)
+    while (starting_queue or priority_queue or regular_queue) and len(visited) < max_pages:
+        # Multi-level queue logic: starting_pages -> staff/priority -> regular
+        if starting_queue:
+            url = starting_queue.pop(0)
+        elif priority_queue:
+            url = priority_queue.pop(0)
+        else:
+            url = regular_queue.pop(0)
+
         if url in visited:
             continue
 
@@ -114,13 +123,13 @@ def crawl_and_extract(max_pages=40):
                         skip_keywords = ['/notice', '/news', '/events', '/gallery', '/download', 'download.php', 'faq.php', 'agrahara.php', 'bylaws.php', 'sitemap.php', 'gallery/']
                         is_valid = not any(kw in full_href.lower() for kw in skip_keywords)
                         
-                        if is_valid and full_href not in visited and full_href not in queue:
+                        if is_valid and full_href not in visited and full_href not in starting_queue and full_href not in priority_queue and full_href not in regular_queue:
                             # Prioritize staff, profiles, divisions, and departments
-                            is_priority = any(k in full_href.lower() for k in ['staff', 'profile', 'division of', 'department of', 'depatment of', 'deanoffice', 'pg_unit'])
+                            is_priority = any(k in unquote(full_href).lower() for k in ['staff', 'profile', 'division of', 'department of', 'depatment of', 'deanoffice', 'pg_unit'])
                             if is_priority:
-                                queue.insert(0, full_href)
+                                priority_queue.append(full_href)
                             else:
-                                queue.append(full_href)
+                                regular_queue.append(full_href)
 
             # Polite delay
             time.sleep(0.5)
