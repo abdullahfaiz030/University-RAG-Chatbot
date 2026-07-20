@@ -110,8 +110,17 @@ def crawl_and_extract(max_pages=40):
                     full_href = full_href.split('#')[0].rstrip('/')
                     
                     if "seu.ac.lk" in urlparse(full_href).netloc:
-                        if full_href not in visited and full_href not in queue:
-                            queue.append(full_href)
+                        # Check if the link should be skipped (e.g. notices, news, downloads)
+                        skip_keywords = ['/notice', '/news', '/events', '/gallery', '/download', 'download.php', 'faq.php', 'agrahara.php', 'bylaws.php', 'sitemap.php', 'gallery/']
+                        is_valid = not any(kw in full_href.lower() for kw in skip_keywords)
+                        
+                        if is_valid and full_href not in visited and full_href not in queue:
+                            # Prioritize staff, profiles, divisions, and departments
+                            is_priority = any(k in full_href.lower() for k in ['staff', 'profile', 'division of', 'department of', 'depatment of', 'deanoffice', 'pg_unit'])
+                            if is_priority:
+                                queue.insert(0, full_href)
+                            else:
+                                queue.append(full_href)
 
             # Polite delay
             time.sleep(0.5)
