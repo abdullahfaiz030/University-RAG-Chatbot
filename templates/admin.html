@@ -8,15 +8,31 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'dark') {
+                document.documentElement.classList.add('dark-theme');
+                document.addEventListener('DOMContentLoaded', () => {
+                    document.body.classList.add('dark-theme');
+                });
+            }
+        })();
+    </script>
 </head>
 
 <body>
     <div class="admin-container">
         <!-- Sidebar -->
         <div class="admin-sidebar">
-            <div class="sidebar-brand">
-                <i class="fas fa-shield-alt"></i>
-                <h2>Admin Panel</h2>
+            <div class="sidebar-brand" style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <i class="fas fa-shield-alt"></i>
+                    <h2>Admin Panel</h2>
+                </div>
+                <button id="themeToggleBtn" onclick="toggleTheme()" title="Toggle Theme" style="background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 16px; transition: all 0.2s; padding: 6px; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                    <i class="fas fa-moon"></i>
+                </button>
             </div>
 
             <nav class="sidebar-nav">

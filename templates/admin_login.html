@@ -7,6 +7,17 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'dark') {
+                document.documentElement.classList.add('dark-theme');
+                document.addEventListener('DOMContentLoaded', () => {
+                    document.body.classList.add('dark-theme');
+                });
+            }
+        })();
+    </script>
 </head>
 <body class="login-body">
     <div class="login-container">

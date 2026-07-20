@@ -7,8 +7,45 @@ let folderStructure = {};
 let uploadPath = [];
 let browsePath = [];
 
+// ========== THEME TOGGLING ==========
+function initTheme() {
+    var savedTheme = localStorage.getItem('theme');
+    var toggleBtn = document.getElementById('themeToggleBtn');
+    if (savedTheme === 'dark') {
+        document.body.classList.add('dark-theme');
+        if (toggleBtn) {
+            const icon = toggleBtn.querySelector('i');
+            if (icon) {
+                icon.classList.remove('fa-moon');
+                icon.classList.add('fa-sun');
+            }
+        }
+    }
+}
+
+function toggleTheme() {
+    var toggleBtn = document.getElementById('themeToggleBtn');
+    var icon = toggleBtn ? toggleBtn.querySelector('i') : null;
+    if (document.body.classList.contains('dark-theme')) {
+        document.body.classList.remove('dark-theme');
+        localStorage.setItem('theme', 'light');
+        if (icon) {
+            icon.classList.remove('fa-sun');
+            icon.classList.add('fa-moon');
+        }
+    } else {
+        document.body.classList.add('dark-theme');
+        localStorage.setItem('theme', 'dark');
+        if (icon) {
+            icon.classList.remove('fa-moon');
+            icon.classList.add('fa-sun');
+        }
+    }
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
+    initTheme();
     setupUploadZone();
     setupCategorySelector();
     setupNavigationListeners();
