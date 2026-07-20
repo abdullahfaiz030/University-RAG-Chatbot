@@ -590,6 +590,40 @@ def search_duckduckgo(query):
         print(f"DuckDuckGo HTML scrape error: {e}")
     return None
 
+def search_duckduckgo_lite(query):
+    try:
+        import urllib.parse
+        from bs4 import BeautifulSoup
+        url = "https://lite.duckduckgo.com/lite/"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        r = requests.post(url, data={"q": query}, headers=headers, timeout=8)
+        if r.status_code == 200:
+            soup = BeautifulSoup(r.text, 'html.parser')
+            results = []
+            snippets = soup.find_all('td', class_='result-snippet')
+            for snippet_td in snippets[:3]:
+                parent_tr = snippet_td.find_parent('tr')
+                if parent_tr:
+                    prev_tr = parent_tr.find_previous_sibling('tr')
+                    if prev_tr:
+                        title_link = prev_tr.find('a', class_='result-link')
+                        if title_link:
+                            title = title_link.get_text().strip()
+                            link = title_link['href']
+                            if "uddg=" in link:
+                                parsed = urllib.parse.urlparse(link)
+                                qs = urllib.parse.parse_qs(parsed.query)
+                                if "uddg" in qs:
+                                    link = qs["uddg"][0]
+                            snippet = snippet_td.get_text().strip()
+                            results.append({"title": title, "snippet": snippet, "link": link, "source": "DuckDuckGo (Lite)"})
+            return results if results else None
+    except Exception as e:
+        print(f"DuckDuckGo Lite scrape error: {e}")
+    return None
+
 def search_wikipedia(query):
     try:
         wiki_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{requests.utils.quote(query)}"
@@ -628,11 +662,21 @@ def search_web(query):
     ddg_results = search_duckduckgo(search_query)
     if ddg_results:
         all_results.extend(ddg_results)
-    elif is_university_query:
+    else:
+        # Fallback to DDG Lite search
+        lite_results = search_duckduckgo_lite(search_query)
+        if lite_results:
+            all_results.extend(lite_results)
+            
+    if not all_results and is_university_query:
         # Fallback to keyword-based search if strict domain search yields nothing
         fallback_results = search_duckduckgo(f"seu.ac.lk {query}")
         if fallback_results:
             all_results.extend(fallback_results)
+        else:
+            lite_fallback = search_duckduckgo_lite(f"seu.ac.lk {query}")
+            if lite_fallback:
+                all_results.extend(lite_fallback)
             
     # Wikipedia is only useful for general terms, not university-specific pages
     if not is_university_query:
@@ -868,7 +912,7 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
             sources = [r.get('title', '') for r in web_results[:3] if r.get('title')]
 
     doc_context = ""
-    if qdrant_client and embedding_model and not is_casual and not web_results:
+    if qdrant_client and embedding_model and not is_casual and (not web_results or is_university_query):
         search_query = previous_topic if (is_follow_up and previous_topic) else user_message
         try:
             query_embedding = embedding_model.encode(search_query).tolist()
@@ -877,7 +921,7 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
                 texts = [hit.payload.get('text', '') for hit in search_results]
                 if texts: doc_context = "\n\n".join(texts[:3])
                 doc_names = [hit.payload.get('filename', '') for hit in search_results if hit.payload.get('filename')]
-                sources = list(dict.fromkeys(doc_names))
+                sources = list(dict.fromkeys(sources + doc_names))
         except Exception as e: print(f"Search error: {e}")
 
     # Add past paper context
@@ -917,14 +961,25 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
     elif sentiment == 'frustrated':
         system_prompt = "The user seems frustrated. Be extra patient and helpful. 2-3 sentences."
         user_prompt = f"User seems confused: {user_message}\n\nPatient, helpful response:"; max_tokens = 150
+    elif is_university_query:
+        web_context = ""
+        if web_results:
+            web_context = "".join([f"📰 {r.get('title', '')}: {r.get('snippet', '')}\n\n" for r in web_results[:3]])
+        system_prompt = "You are the AI Learning Assistant of South Eastern University of Sri Lanka (SEUSL). Answer the question using the provided official university web pages and database. Be helpful, accurate, and professional."
+        
+        context_parts = []
+        if doc_context:
+            context_parts.append(f"University Database Reference:\n{doc_context}")
+        if web_context:
+            context_parts.append(f"Web Search Results:\n{web_context}")
+            
+        combined_context = "\n\n".join(context_parts)
+        user_prompt = f"Official Context:\n{combined_context}\n\nQuestion: {user_message}\n\nAnswer:"
+        max_tokens = 350
     elif web_results:
         web_context = "".join([f"📰 {r.get('title', '')}: {r.get('snippet', '')}\n\n" for r in web_results[:3]])
-        if is_university_query:
-            system_prompt = "You are the AI Learning Assistant of South Eastern University of Sri Lanka (SEUSL). Answer the question using the provided official university web pages. Be helpful, accurate, and professional."
-            user_prompt = f"Web results from SEUSL website:\n{web_context}\n\nQuestion: {user_message}\n\nAnswer:"; max_tokens = 300
-        else:
-            system_prompt = "You are a helpful AI with web access. Answer in 1-3 SHORT sentences. Be direct."
-            user_prompt = f"Web results:\n{web_context}\n\nQuestion: {user_message}\n\nShort answer:"; max_tokens = 120
+        system_prompt = "You are a helpful AI with web access. Answer in 1-3 SHORT sentences. Be direct."
+        user_prompt = f"Web results:\n{web_context}\n\nQuestion: {user_message}\n\nShort answer:"; max_tokens = 120
     elif is_follow_up and doc_context:
         system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP about: '{previous_topic}'. Expand on it. 3-5 sentences. NEVER mention notes or documents."
         user_prompt = f"Reference about '{previous_topic}':\n{doc_context[:500]}\n\nUser: {user_message}\n\nExpand on '{previous_topic}':"; max_tokens = 200
