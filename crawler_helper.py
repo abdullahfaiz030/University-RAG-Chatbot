@@ -29,16 +29,16 @@ except ImportError:
 # Predefined key pages to ensure we prioritize faculties and contact info
 STARTING_PAGES = [
     "https://www.seu.ac.lk/",
-    "https://www.seu.ac.lk/fas/",           # Applied Sciences
-    "https://www.seu.ac.lk/fas/staffNew.html",  # Applied Sciences Staff (has Dean)
-    "https://www.seu.ac.lk/about.php",
-    "https://www.seu.ac.lk/faculties.php",
-    "https://www.seu.ac.lk/contact.php",
-    "https://www.seu.ac.lk/fmc/",           # Management & Commerce
-    "https://www.seu.ac.lk/fia/",           # Islamic Studies & Arabic Language
-    "https://www.seu.ac.lk/arts/",          # Arts & Culture
-    "https://www.seu.ac.lk/fe/",            # Engineering
-    "https://www.seu.ac.lk/tech/"           # Technology
+    "http://www.seu.ac.lk/overview.php",
+    "http://www.seu.ac.lk/contactus.php",
+    "http://www.seu.ac.lk/academic_staff.php",
+    "http://www.seu.ac.lk/fas/index.php",
+    "http://www.seu.ac.lk/fas/staffNew.html",
+    "http://www.seu.ac.lk/fac/index.php",
+    "http://www.seu.ac.lk/fia/index.php",
+    "http://www.seu.ac.lk/fmc/index.php",
+    "http://fe.seu.ac.lk/index.php",
+    "http://www.seu.ac.lk/ft/index.php"
 ]
 
 def crawl_and_extract(max_pages=40):
