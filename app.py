@@ -656,8 +656,27 @@ def search_web(query):
     
     search_query = query
     if is_university_query:
-        # Restrict the web search strictly to the official university website
-        search_query = f"site:seu.ac.lk {query}"
+        # Simplify the query to prevent search engine confusion
+        simplified = query.lower()
+        noises = [
+            'what is the', 'what is', 'who is the', 'who is', 'email address of', 'email of', 
+            'email address', 'contact details of', 'contact of', 'phone number of', 'phone of', 
+            'address of', 'dean of faculty of', 'dean of', 'faculty of', 'professor', 'sir', 
+            'srilanka', 'sri lanka', 'south eastern university', 'seusl', 'seu'
+        ]
+        for word in noises:
+            simplified = simplified.replace(word, '')
+        
+        # Remove leftover small connector words like 'of', 'for', 'the', 'and', 'in', 'at'
+        words_list = [w for w in simplified.split() if w not in ['of', 'for', 'the', 'and', 'in', 'at', 'is', 'a']]
+        simplified = " ".join(words_list)
+        
+        # If the user asked for contact details, ensure the keywords are present
+        has_contact_req = any(w in query.lower() for w in ['email', 'mail', 'contact', 'phone', 'tele', 'number', 'address'])
+        if has_contact_req:
+            search_query = f"site:seu.ac.lk {simplified} email contact"
+        else:
+            search_query = f"site:seu.ac.lk {simplified}"
         
     ddg_results = search_duckduckgo(search_query)
     if ddg_results:
@@ -692,6 +711,27 @@ def search_web(query):
             fallback_any = search_anysearch(f"seu.ac.lk {query}")
             if fallback_any:
                 all_results.extend(fallback_any)
+    
+    # Scrape the top 2 results to get full page context
+    if all_results:
+        from bs4 import BeautifulSoup
+        for r in all_results[:2]:
+            link = r.get('link')
+            if link and any(dom in link for dom in ['seu.ac.lk', 'wikipedia.org']):
+                try:
+                    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+                    page_response = requests.get(link, headers=headers, timeout=4)
+                    if page_response.status_code == 200:
+                        page_soup = BeautifulSoup(page_response.text, 'html.parser')
+                        for element in page_soup(["script", "style", "nav", "footer", "header"]):
+                            element.decompose()
+                        page_text = page_soup.get_text()
+                        clean_lines = [l.strip() for l in page_text.splitlines() if len(l.strip()) > 10]
+                        page_content = "\n".join(clean_lines[:40])
+                        if page_content:
+                            r['scraped_content'] = page_content
+                except Exception as e:
+                    print(f"Error scraping search result link {link}: {e}")
                 
     return all_results if all_results else None
 
@@ -906,10 +946,21 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
 
     web_results = None
     sources = []
+    web_context = ""
     if needs_realtime and not is_casual:
         web_results = search_web(user_message)
         if web_results:
             sources = [r.get('title', '') for r in web_results[:3] if r.get('title')]
+            web_context_items = []
+            for r in web_results[:3]:
+                title = r.get('title', '')
+                snippet = r.get('snippet', '')
+                scraped = r.get('scraped_content', '')
+                item = f"📰 {title}:\nSnippet: {snippet}"
+                if scraped:
+                    item += f"\nFull Content:\n{scraped}"
+                web_context_items.append(item)
+            web_context = "\n\n".join(web_context_items)
 
     doc_context = ""
     if qdrant_client and embedding_model and not is_casual and (not web_results or is_university_query):
@@ -962,9 +1013,6 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
         system_prompt = "The user seems frustrated. Be extra patient and helpful. 2-3 sentences."
         user_prompt = f"User seems confused: {user_message}\n\nPatient, helpful response:"; max_tokens = 150
     elif is_university_query:
-        web_context = ""
-        if web_results:
-            web_context = "".join([f"📰 {r.get('title', '')}: {r.get('snippet', '')}\n\n" for r in web_results[:3]])
         system_prompt = "You are the AI Learning Assistant of South Eastern University of Sri Lanka (SEUSL). Answer the question using the provided official university web pages and database. Be helpful, accurate, and professional."
         
         context_parts = []
@@ -977,7 +1025,6 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
         user_prompt = f"Official Context:\n{combined_context}\n\nQuestion: {user_message}\n\nAnswer:"
         max_tokens = 350
     elif web_results:
-        web_context = "".join([f"📰 {r.get('title', '')}: {r.get('snippet', '')}\n\n" for r in web_results[:3]])
         system_prompt = "You are a helpful AI with web access. Answer in 1-3 SHORT sentences. Be direct."
         user_prompt = f"Web results:\n{web_context}\n\nQuestion: {user_message}\n\nShort answer:"; max_tokens = 120
     elif is_follow_up and doc_context:
