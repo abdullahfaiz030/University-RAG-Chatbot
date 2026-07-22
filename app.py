@@ -1055,21 +1055,31 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
         combined_context = "\n\n".join(context_parts)
         user_prompt = f"Official Context:\n{combined_context}\n\nQuestion: {user_message}\n\nAnswer:"
         max_tokens = 350
-    elif web_results:
-        system_prompt = "You are a helpful AI with web access. Answer in 1-3 SHORT sentences. Be direct."
-        user_prompt = f"Web results:\n{web_context}\n\nQuestion: {user_message}\n\nShort answer:"; max_tokens = 120
     elif is_follow_up and doc_context:
-        system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP about: '{previous_topic}'. Expand on it. 3-5 sentences. Cite the document/file source if relevant. CRITICAL: If the provided references/documents do not contain information related to the question, or are irrelevant, ignore them and answer using your general knowledge."
-        user_prompt = f"Reference about '{previous_topic}':\n{doc_context[:20000]}\n\nUser: {user_message}\n\nExpand on '{previous_topic}':"; max_tokens = 200
+        context_parts = []
+        context_parts.append(f"Reference Documents:\n{doc_context}")
+        if web_context:
+            context_parts.append(f"Web Search Results:\n{web_context}")
+        combined_context = "\n\n".join(context_parts)
+        system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP about: '{previous_topic}'. Expand on it. 3-5 sentences. Cite the document/file source if relevant. Prioritize Reference Documents if they are relevant, otherwise you can use Web Search Results or general knowledge."
+        user_prompt = f"Context:\n{combined_context}\n\nUser: {user_message}\n\nExpand on '{previous_topic}':"; max_tokens = 200
     elif is_follow_up and not doc_context:
         system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP about: '{previous_topic}'. Expand on it. 3-5 sentences."
         user_prompt = f"Previous topic: '{previous_topic}'. User: {user_message}\n\nExpand on '{previous_topic}':"; max_tokens = 200
     elif doc_context:
+        context_parts = []
+        context_parts.append(f"Reference Documents:\n{doc_context}")
+        if web_context:
+            context_parts.append(f"Web Search Results:\n{web_context}")
+        combined_context = "\n\n".join(context_parts)
         system_prompt = (
-            "You are a helpful AI tutor. Answer in 1-3 SHORT sentences. Use the provided references/documents to answer the question, citing the source filename (e.g. [filename.pdf]) when available. "
-            "CRITICAL: If the provided references/documents do not contain information related to the question, or are irrelevant, ignore them and answer the question accurately using your own general knowledge (do not cite the irrelevant files)."
+            "You are a helpful AI tutor. Answer in 1-3 SHORT sentences. Use the provided Reference Documents to answer the question, citing the source filename (e.g. [filename.pdf]) when available. "
+            "If the Reference Documents are irrelevant or do not contain the answer, you can use the Web Search Results or your own general knowledge to answer, prioritizing the documents if they contain the answer."
         )
-        user_prompt = f"Reference (read silently):\n{doc_context[:20000]}\n\nQuestion: {user_message}\n\nShort answer:"; max_tokens = 100
+        user_prompt = f"Context:\n{combined_context}\n\nQuestion: {user_message}\n\nShort answer:"; max_tokens = 100
+    elif web_results:
+        system_prompt = "You are a helpful AI with web access. Answer in 1-3 SHORT sentences. Be direct."
+        user_prompt = f"Web results:\n{web_context}\n\nQuestion: {user_message}\n\nShort answer:"; max_tokens = 120
     else:
         system_prompt = "You are a smart AI assistant. Answer in 1-3 SHORT sentences."
         user_prompt = f"Question: {user_message}\n\nShort answer:"; max_tokens = 100
