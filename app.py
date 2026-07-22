@@ -992,13 +992,17 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
             search_results = qdrant_client.search(collection_name="university_notes", query_vector=query_embedding, limit=15)
             if search_results:
                 formatted_texts = []
+                doc_names = []
                 for hit in search_results:
+                    if hit.score < 0.38:
+                        continue
                     text = hit.payload.get('text', '')
                     filename = hit.payload.get('filename', 'Unknown source')
                     formatted_texts.append(f"[{filename}]: {text}")
+                    if hit.payload.get('filename'):
+                        doc_names.append(hit.payload.get('filename'))
                 if formatted_texts:
                     doc_context = "\n\n".join(formatted_texts)
-                doc_names = [hit.payload.get('filename', '') for hit in search_results if hit.payload.get('filename')]
                 sources = list(dict.fromkeys(sources + doc_names))
         except Exception as e: print(f"Search error: {e}")
 
@@ -1626,7 +1630,7 @@ def generate_flashcards():
                 if custom_topic:
                     query_embedding = embedding_model.encode(custom_topic).tolist()
                     results = qdrant_client.search(collection_name="university_notes", query_vector=query_embedding, limit=4)
-                    if results: doc_context = "\n\n".join([h.payload.get('text', '') for h in results])
+                    if results: doc_context = "\n\n".join([h.payload.get('text', '') for h in results if h.score >= 0.38])
                 else:
                     results = qdrant_client.scroll(collection_name="university_notes", limit=5)
                     if results[0]: doc_context = "\n\n".join([h.payload.get('text', '') for h in results[0]])
@@ -1677,7 +1681,7 @@ def generate_summary():
             try:
                 query_embedding = embedding_model.encode(topic).tolist()
                 results = qdrant_client.search(collection_name="university_notes", query_vector=query_embedding, limit=6)
-                if results: doc_context = "\n\n".join([h.payload.get('text', '') for h in results])
+                if results: doc_context = "\n\n".join([h.payload.get('text', '') for h in results if h.score >= 0.38])
             except: pass
         if not doc_context: return jsonify({'error': 'No relevant documents found.'}), 404
         system_prompt = "You are an academic summarizer. Create a structured Markdown summary with headings, subheadings, and bullet points."
@@ -1715,7 +1719,7 @@ def generate_quiz():
             try:
                 query_embedding = embedding_model.encode(topic).tolist()
                 results = qdrant_client.search(collection_name="university_notes", query_vector=query_embedding, limit=6)
-                if results: doc_context = "\n\n".join([h.payload.get('text', '') for h in results])
+                if results: doc_context = "\n\n".join([h.payload.get('text', '') for h in results if h.score >= 0.38])
             except: pass
             
         if not doc_context: return jsonify({'error': 'No relevant notes found for this topic.'}), 404
@@ -1824,10 +1828,10 @@ def generate_study_plan():
                     query_embedding = embedding_model.encode(subject).tolist()
                     results = qdrant_client.search(collection_name="university_notes", query_vector=query_embedding, limit=5)
                     if results:
-                        texts = [h.payload.get('text', '') for h in results]
+                        texts = [h.payload.get('text', '') for h in results if h.score >= 0.38]
                         combined = "\n\n".join(texts)
                         word_count = len(combined.split())
-                        subject_content[subject] = {'text': combined[:2000], 'word_count': word_count, 'chunks_found': len(results)}
+                        subject_content[subject] = {'text': combined[:2000], 'word_count': word_count, 'chunks_found': len(texts)}
                         total_content_volume += word_count
                 except: pass
         
