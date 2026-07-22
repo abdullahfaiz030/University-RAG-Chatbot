@@ -281,17 +281,22 @@ class HFEmbeddingModel:
             import numpy as np
             if isinstance(sentences, str):
                 res = self.client.feature_extraction(text=sentences, model=self.model_name)
-                return res if isinstance(res, np.ndarray) else np.array(res)
+                val = res if isinstance(res, np.ndarray) else np.array(res)
+                if np.all(val == 0):
+                    raise ValueError("Inference API returned all zeros")
+                return val
             else:
                 results = []
                 for s in sentences:
                     res = self.client.feature_extraction(text=s, model=self.model_name)
-                    results.append(res if isinstance(res, np.ndarray) else np.array(res))
+                    val = res if isinstance(res, np.ndarray) else np.array(res)
+                    if np.all(val == 0):
+                        raise ValueError("Inference API returned all zeros")
+                    results.append(val)
                 return np.stack(results)
         except Exception as e:
             print(f"❌ Error during HF Inference API feature extraction: {e}")
-            import numpy as np
-            return np.zeros(384) if isinstance(sentences, str) else np.zeros((len(sentences), 384))
+            raise RuntimeError(f"Embedding generation failed: {e}")
 
 try:
     hf_token = os.getenv('HF_TOKEN')
