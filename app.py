@@ -2197,6 +2197,30 @@ def run_initial_sync():
         except Exception as e:
             print(f"⚠️ [Startup] Error checking Qdrant for crawler data: {e}")
 
+@app.route('/debug-search')
+def debug_search_route():
+    query = request.args.get('q', '')
+    if not query:
+        return jsonify({'error': 'No query provided'}), 400
+    results = []
+    if qdrant_client and embedding_model:
+        try:
+            qe = embedding_model.encode(query).tolist()
+            search_results = qdrant_client.search(collection_name="university_notes", query_vector=qe, limit=30)
+            for h in search_results:
+                results.append({
+                    'score': h.score,
+                    'filename': h.payload.get('filename'),
+                    'text': h.payload.get('text', '')[:200]
+                })
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+    return jsonify({
+        'query': query,
+        'results_count': len(results),
+        'results': results
+    })
+
 import threading
 threading.Thread(target=run_initial_sync, daemon=True).start()
 
