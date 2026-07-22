@@ -994,7 +994,7 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
                 formatted_texts = []
                 doc_names = []
                 for hit in search_results:
-                    if hit.score < 0.38:
+                    if hit.score < 0.20:
                         continue
                     text = hit.payload.get('text', '')
                     filename = hit.payload.get('filename', 'Unknown source')
@@ -1059,13 +1059,16 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
         system_prompt = "You are a helpful AI with web access. Answer in 1-3 SHORT sentences. Be direct."
         user_prompt = f"Web results:\n{web_context}\n\nQuestion: {user_message}\n\nShort answer:"; max_tokens = 120
     elif is_follow_up and doc_context:
-        system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP about: '{previous_topic}'. Expand on it. 3-5 sentences. Cite the document/file source if relevant."
+        system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP about: '{previous_topic}'. Expand on it. 3-5 sentences. Cite the document/file source if relevant. CRITICAL: If the provided references/documents do not contain information related to the question, or are irrelevant, ignore them and answer using your general knowledge."
         user_prompt = f"Reference about '{previous_topic}':\n{doc_context[:20000]}\n\nUser: {user_message}\n\nExpand on '{previous_topic}':"; max_tokens = 200
     elif is_follow_up and not doc_context:
         system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP about: '{previous_topic}'. Expand on it. 3-5 sentences."
         user_prompt = f"Previous topic: '{previous_topic}'. User: {user_message}\n\nExpand on '{previous_topic}':"; max_tokens = 200
     elif doc_context:
-        system_prompt = "You are a helpful AI tutor. Answer in 1-3 SHORT sentences. Use the provided references/documents to answer the question, citing sources when available."
+        system_prompt = (
+            "You are a helpful AI tutor. Answer in 1-3 SHORT sentences. Use the provided references/documents to answer the question, citing the source filename (e.g. [filename.pdf]) when available. "
+            "CRITICAL: If the provided references/documents do not contain information related to the question, or are irrelevant, ignore them and answer the question accurately using your own general knowledge (do not cite the irrelevant files)."
+        )
         user_prompt = f"Reference (read silently):\n{doc_context[:20000]}\n\nQuestion: {user_message}\n\nShort answer:"; max_tokens = 100
     else:
         system_prompt = "You are a smart AI assistant. Answer in 1-3 SHORT sentences."
@@ -1630,7 +1633,7 @@ def generate_flashcards():
                 if custom_topic:
                     query_embedding = embedding_model.encode(custom_topic).tolist()
                     results = qdrant_client.search(collection_name="university_notes", query_vector=query_embedding, limit=4)
-                    if results: doc_context = "\n\n".join([h.payload.get('text', '') for h in results if h.score >= 0.38])
+                    if results: doc_context = "\n\n".join([h.payload.get('text', '') for h in results if h.score >= 0.20])
                 else:
                     results = qdrant_client.scroll(collection_name="university_notes", limit=5)
                     if results[0]: doc_context = "\n\n".join([h.payload.get('text', '') for h in results[0]])
@@ -1681,7 +1684,7 @@ def generate_summary():
             try:
                 query_embedding = embedding_model.encode(topic).tolist()
                 results = qdrant_client.search(collection_name="university_notes", query_vector=query_embedding, limit=6)
-                if results: doc_context = "\n\n".join([h.payload.get('text', '') for h in results if h.score >= 0.38])
+                if results: doc_context = "\n\n".join([h.payload.get('text', '') for h in results if h.score >= 0.20])
             except: pass
         if not doc_context: return jsonify({'error': 'No relevant documents found.'}), 404
         system_prompt = "You are an academic summarizer. Create a structured Markdown summary with headings, subheadings, and bullet points."
@@ -1719,7 +1722,7 @@ def generate_quiz():
             try:
                 query_embedding = embedding_model.encode(topic).tolist()
                 results = qdrant_client.search(collection_name="university_notes", query_vector=query_embedding, limit=6)
-                if results: doc_context = "\n\n".join([h.payload.get('text', '') for h in results if h.score >= 0.38])
+                if results: doc_context = "\n\n".join([h.payload.get('text', '') for h in results if h.score >= 0.20])
             except: pass
             
         if not doc_context: return jsonify({'error': 'No relevant notes found for this topic.'}), 404
@@ -1828,7 +1831,7 @@ def generate_study_plan():
                     query_embedding = embedding_model.encode(subject).tolist()
                     results = qdrant_client.search(collection_name="university_notes", query_vector=query_embedding, limit=5)
                     if results:
-                        texts = [h.payload.get('text', '') for h in results if h.score >= 0.38]
+                        texts = [h.payload.get('text', '') for h in results if h.score >= 0.20]
                         combined = "\n\n".join(texts)
                         word_count = len(combined.split())
                         subject_content[subject] = {'text': combined[:2000], 'word_count': word_count, 'chunks_found': len(texts)}
