@@ -14,3 +14,4 @@ venv/
 bin/
 imp/
 .continue/
+qdrant_db/

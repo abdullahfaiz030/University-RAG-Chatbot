@@ -305,8 +305,15 @@ qdrant_client = None
 try:
     qdrant_url = os.getenv('QDRANT_URL')
     qdrant_api_key = os.getenv('QDRANT_API_KEY')
-    if qdrant_url and qdrant_api_key:
-        qdrant_client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
+    if qdrant_url:
+        qdrant_client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key if qdrant_api_key else None)
+        print("✅ Qdrant connected to Cloud/Docker instance")
+    else:
+        db_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qdrant_db")
+        qdrant_client = QdrantClient(path=db_dir)
+        print(f"📁 Qdrant local storage initialized at: {db_dir}")
+
+    if qdrant_client:
         collections = qdrant_client.get_collections().collections
         collection_names = [c.name for c in collections]
         if "university_notes" not in collection_names:
@@ -329,8 +336,6 @@ try:
             print("✅ Created Qdrant payload index for 'source'")
         except Exception as e:
             print(f"⚠️ Could not create Qdrant payload index: {e}")
-    else:
-        print("⚠️ Qdrant credentials not found")
 except Exception as e:
     print(f"❌ Qdrant connection failed: {e}")
     qdrant_client = None
@@ -980,14 +985,19 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
             web_context = "\n\n".join(web_context_items)
 
     doc_context = ""
-    if qdrant_client and embedding_model and not is_casual and (not web_results or is_university_query):
+    if qdrant_client and embedding_model and not is_casual:
         search_query = previous_topic if (is_follow_up and previous_topic) else user_message
         try:
             query_embedding = embedding_model.encode(search_query).tolist()
-            search_results = qdrant_client.search(collection_name="university_notes", query_vector=query_embedding, limit=3)
+            search_results = qdrant_client.search(collection_name="university_notes", query_vector=query_embedding, limit=15)
             if search_results:
-                texts = [hit.payload.get('text', '') for hit in search_results]
-                if texts: doc_context = "\n\n".join(texts[:3])
+                formatted_texts = []
+                for hit in search_results:
+                    text = hit.payload.get('text', '')
+                    filename = hit.payload.get('filename', 'Unknown source')
+                    formatted_texts.append(f"[{filename}]: {text}")
+                if formatted_texts:
+                    doc_context = "\n\n".join(formatted_texts)
                 doc_names = [hit.payload.get('filename', '') for hit in search_results if hit.payload.get('filename')]
                 sources = list(dict.fromkeys(sources + doc_names))
         except Exception as e: print(f"Search error: {e}")
@@ -1045,14 +1055,14 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
         system_prompt = "You are a helpful AI with web access. Answer in 1-3 SHORT sentences. Be direct."
         user_prompt = f"Web results:\n{web_context}\n\nQuestion: {user_message}\n\nShort answer:"; max_tokens = 120
     elif is_follow_up and doc_context:
-        system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP about: '{previous_topic}'. Expand on it. 3-5 sentences. NEVER mention notes or documents."
-        user_prompt = f"Reference about '{previous_topic}':\n{doc_context[:500]}\n\nUser: {user_message}\n\nExpand on '{previous_topic}':"; max_tokens = 200
+        system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP about: '{previous_topic}'. Expand on it. 3-5 sentences. Cite the document/file source if relevant."
+        user_prompt = f"Reference about '{previous_topic}':\n{doc_context[:20000]}\n\nUser: {user_message}\n\nExpand on '{previous_topic}':"; max_tokens = 200
     elif is_follow_up and not doc_context:
         system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP about: '{previous_topic}'. Expand on it. 3-5 sentences."
         user_prompt = f"Previous topic: '{previous_topic}'. User: {user_message}\n\nExpand on '{previous_topic}':"; max_tokens = 200
     elif doc_context:
-        system_prompt = "You are a helpful AI tutor. Answer in 1-3 SHORT sentences. NEVER mention notes or documents."
-        user_prompt = f"Reference (read silently):\n{doc_context[:500]}\n\nQuestion: {user_message}\n\nShort answer:"; max_tokens = 100
+        system_prompt = "You are a helpful AI tutor. Answer in 1-3 SHORT sentences. Use the provided references/documents to answer the question, citing sources when available."
+        user_prompt = f"Reference (read silently):\n{doc_context[:20000]}\n\nQuestion: {user_message}\n\nShort answer:"; max_tokens = 100
     else:
         system_prompt = "You are a smart AI assistant. Answer in 1-3 SHORT sentences."
         user_prompt = f"Question: {user_message}\n\nShort answer:"; max_tokens = 100
