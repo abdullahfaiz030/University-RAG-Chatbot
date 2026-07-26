@@ -1121,8 +1121,8 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
         user_prompt = user_prompt.replace("Short response:", "Response:")
         user_prompt = user_prompt.replace("Short greeting:", "Greeting:")
         
-        system_prompt += " Keep response to a medium length (2-4 sentences max)."
-        max_tokens = 250
+        system_prompt += " Keep response to a medium length. Use bullet points or lists if the source documents contain structured information or lists."
+        max_tokens = 500
 
     wants_chart = any(w in user_lower for w in ['chart', 'graph', 'plot', 'statistics', 'stats', 'compare', 'comparison', 'data table', 'trend'])
     if wants_chart and not is_casual:
