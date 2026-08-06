@@ -478,7 +478,7 @@ def clean_text(text):
     text = re.sub(r'<center>.*?</center>', '', text, flags=re.DOTALL)
     return text.strip()
 
-def chunk_text(text, size=500, overlap=50):
+def chunk_text(text, size=1000, overlap=150):
     paragraphs = re.split(r'\n\s*\n', text)
     chunks = []
     current = ""
@@ -999,6 +999,8 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
                 formatted_texts = []
                 doc_names = []
                 for hit in search_results:
+                    if hit.score < 0.38:
+                        continue
                     text = hit.payload.get('text', '')
                     filename = hit.payload.get('filename', 'Unknown source')
                     formatted_texts.append(f"[{filename}]: {text}")
@@ -1047,7 +1049,7 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
         system_prompt = "The user seems frustrated. Be extra patient and helpful. 2-3 sentences."
         user_prompt = f"User seems confused: {user_message}\n\nPatient, helpful response:"; max_tokens = 150
     elif is_university_query:
-        system_prompt = "You are the AI Learning Assistant of South Eastern University of Sri Lanka (SEUSL). Answer the question using the provided official university web pages and database. Be helpful, accurate, and professional."
+        system_prompt = "You are the AI Learning Assistant of South Eastern University of Sri Lanka (SEUSL). Answer the question using the provided official university database and web pages. Be helpful, accurate, and professional. Prioritize database references and document contents. Cite file sources when available."
         
         context_parts = []
         if doc_context:
@@ -1064,7 +1066,7 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
         if web_context:
             context_parts.append(f"Web Search Results:\n{web_context}")
         combined_context = "\n\n".join(context_parts)
-        system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP about: '{previous_topic}'. Expand on it. 3-5 sentences. Cite the document/file source if relevant. Prioritize Reference Documents if they are relevant, otherwise you can use Web Search Results or general knowledge."
+        system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP about: '{previous_topic}'. Expand on it. 3-5 sentences. Use the provided Reference Documents as your primary source, citing the source filename (e.g. [filename.pdf]) when available. If the answer is not in the documents, state that clearly."
         user_prompt = f"Context:\n{combined_context}\n\nUser: {user_message}\n\nExpand on '{previous_topic}':"; max_tokens = 200
     elif is_follow_up and not doc_context:
         system_prompt = f"You are a helpful AI tutor. The user is asking a FOLLOW-UP about: '{previous_topic}'. Expand on it. 3-5 sentences."
@@ -1077,7 +1079,7 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
         combined_context = "\n\n".join(context_parts)
         system_prompt = (
             "You are a helpful AI tutor. Answer in 1-3 SHORT sentences. Use the provided Reference Documents to answer the question, citing the source filename (e.g. [filename.pdf]) when available. "
-            "If the Reference Documents are irrelevant or do not contain the answer, you can use the Web Search Results or your own general knowledge to answer, prioritizing the documents if they contain the answer."
+            "Strictly prioritize the Reference Documents. If they do not contain the answer, state: 'Based on the uploaded documents, I cannot find the answer to this question.' Do not use general knowledge or web search if the query is about the uploaded documents."
         )
         user_prompt = f"Context:\n{combined_context}\n\nQuestion: {user_message}\n\nShort answer:"; max_tokens = 100
     elif web_results:
@@ -2096,9 +2098,21 @@ def get_documents():
                             'category': point.payload.get('category', 'Root'),
                             'upload_date': point.payload.get('upload_date', 'Unknown'),
                             'doc_id': point.id,
-                            'chunks': 0
+                            'chunks': 0,
+                            'text_length': 0
                         }
                     file_groups[filename]['chunks'] += 1
+                    file_groups[filename]['text_length'] += len(point.payload.get('text', ''))
+            
+            # Process quality status for each document
+            for info in file_groups.values():
+                if info['text_length'] < 100:
+                    info['status'] = 'Critical (No text extracted)'
+                elif info['chunks'] == 1 and info['file_type'] in ['PDF', 'PPTX'] and info['text_length'] < 400:
+                    info['status'] = 'Warning (Low text count)'
+                else:
+                    info['status'] = 'Healthy (Retrievable)'
+            
             docs = list(file_groups.values())
         except Exception as e:
             print(f"Error scrolling documents: {e}")
@@ -2109,6 +2123,30 @@ def get_documents():
 def delete_document(doc_id):
     try:
         if qdrant_client:
+            # Try to retrieve the point to get the filename and delete all associated points
+            try:
+                res = qdrant_client.retrieve(collection_name="university_notes", ids=[doc_id])
+                if res and res[0].payload:
+                    filename = res[0].payload.get('filename')
+                    if filename:
+                        from qdrant_client.http import models as qdrant_models
+                        qdrant_client.delete(
+                            collection_name="university_notes",
+                            points_selector=qdrant_models.Filter(
+                                must=[
+                                    qdrant_models.FieldCondition(
+                                        key="filename",
+                                        match=qdrant_models.MatchValue(value=filename)
+                                    )
+                                ]
+                            )
+                        )
+                        print(f"🗑️ Deleted all chunks for document: {filename}")
+                        return jsonify({'success': True})
+            except Exception as ex:
+                print(f"Failed to delete full document by filename: {ex}. Falling back to single point delete.")
+            
+            # Fallback to delete by doc_id directly
             qdrant_client.delete(collection_name="university_notes", points_selector=[doc_id])
         return jsonify({'success': True})
     except Exception as e:

@@ -560,7 +560,15 @@ function updateQuickFolders() {
 function renderDocumentList(docs) {
     const grid = document.getElementById('documentsGrid');
     if (docs.length === 0) { grid.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-secondary);">No documents match.</div>'; return; }
-    grid.innerHTML = docs.map(doc => `
+    grid.innerHTML = docs.map(doc => {
+        const status = doc.status || 'Healthy (Retrievable)';
+        const isHealthy = status.includes('Healthy');
+        const isWarning = status.includes('Warning');
+        const badgeBg = isHealthy ? 'rgba(16, 185, 129, 0.15)' : isWarning ? 'rgba(245, 158, 11, 0.15)' : 'rgba(239, 68, 68, 0.15)';
+        const badgeColor = isHealthy ? '#10b981' : isWarning ? '#f59e0b' : '#ef4444';
+        const badgeIcon = isHealthy ? 'fa-check-circle' : isWarning ? 'fa-exclamation-triangle' : 'fa-times-circle';
+
+        return `
         <div class="document-card">
             <div class="doc-info">
                 <div class="doc-icon"><i class="fas ${getFileIcon(doc.file_type)}" style="color:${getFolderColor(doc.category || '')};"></i></div>
@@ -571,6 +579,9 @@ function renderDocumentList(docs) {
                         <span><i class="far fa-clock"></i> ${formatDate(doc.upload_date)}</span>
                         <span><i class="fas fa-tag"></i> ${doc.file_type.toUpperCase()}</span>
                         ${doc.category ? `<span class="doc-category">📁 ${doc.category}</span>` : ''}
+                        <span class="status-badge" style="margin-left: 8px; font-weight: 500; font-size: 11px; padding: 2px 8px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; background-color: ${badgeBg}; color: ${badgeColor};">
+                            <i class="fas ${badgeIcon}"></i> ${status}
+                        </span>
                     </div>
                 </div>
             </div>
@@ -578,7 +589,8 @@ function renderDocumentList(docs) {
                 <button class="action-btn rename-btn" onclick="openRenameModal('${doc.doc_id}','${doc.filename.replace(/'/g, "\\'")}')" title="Rename"><i class="fas fa-pen"></i> Rename</button>
                 <button class="action-btn delete-btn" onclick="deleteDocument('${doc.doc_id}')"><i class="fas fa-trash"></i> Delete</button>
             </div>
-        </div>`).join('');
+        </div>`;
+    }).join('');
 }
 
 function filterDocuments() {

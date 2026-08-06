@@ -1191,10 +1191,11 @@ li {
 .flashcard-viewport {
     flex: 1;
     display: flex;
-    align-items: center;
-    justify-content: center;
+    flex-direction: column;
     padding: 24px;
     overflow-y: auto;
+    position: relative;
+    z-index: 1;
     background: radial-gradient(circle at 50% 50%, rgba(29, 78, 216, 0.03) 0%, transparent 60%);
 }
 
@@ -1204,7 +1205,7 @@ li {
     max-width: 500px;
     height: 320px;
     perspective: 1000px;
-    margin: 0 auto;
+    margin: auto;
 }
 
 .flashcard-card {
