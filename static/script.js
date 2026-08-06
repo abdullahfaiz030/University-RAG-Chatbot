@@ -635,7 +635,7 @@ async function sendMessage() {
     var textEl = null;
     var fullText = '';
     var doneMeta = null;
-    var lengthControl = lengthSelect ? lengthSelect.value : 'medium';
+    var lengthControl = lengthSelect ? lengthSelect.value : 'detailed';
 
     try {
         var response = await fetch('/chat/stream', {
