@@ -999,7 +999,7 @@ def build_chat_context(user_message, session_id, length_control='medium', upload
                 formatted_texts = []
                 doc_names = []
                 for hit in search_results:
-                    if hit.score < 0.38:
+                    if hit.score < 0.15:
                         continue
                     text = hit.payload.get('text', '')
                     filename = hit.payload.get('filename', 'Unknown source')
